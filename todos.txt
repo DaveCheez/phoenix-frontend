@@ -1,0 +1,13 @@
+# Phoenix Vanz To-Do List
+
+## High Priority Bugs
+* **Cart**: Re-implement backend cart API views (create, add, get, remove). --done
+* **Cart**: Fix bug where adding a product multiple times creates separate cart items instead of increasing quantity. --done
+* **Stripe**: Resolve "Invalid API Key" error by correcting environment variable setup.
+
+## Medium Priority Features & Improvements
+* **Cart**: Implement "update quantity" functionality in the cart.
+* **Slideshow**: Update the homepage slideshow with dynamic content.
+* **UX**: Add toast notifications for user feedback (e.g., "Item added to cart").
+* **Refactor**: Centralize API URLs using Nuxt runtime config instead of hardcoding them.
+* **Refactor**: Improve cart state management to prevent potential race conditions.

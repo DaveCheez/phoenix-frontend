@@ -1,0 +1,63 @@
+# REFERENCE TEMPLATE ONLY.
+# Do not upload this over an already-configured app unless you first copy
+# the app's current encrypted secret values into the spec. The safer
+# cutover method is to add production domains in the Networking tab.
+# IMPORTANT: keep this app in the same region as the existing managed PostgreSQL database.
+# The template currently uses London (lon); change it before deployment if your database is elsewhere.
+name: phoenix-vanz-web-next
+region: lon
+features:
+  - buildpack-stack=ubuntu-22
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+domains:
+  - domain: phoenixvanz.com
+    type: PRIMARY
+  - domain: www.phoenixvanz.com
+    type: ALIAS
+envs:
+  - key: NODE_ENV
+    value: production
+    scope: RUN_TIME
+    type: GENERAL
+  - key: USE_NPM_INSTALL
+    value: "true"
+    scope: BUILD_TIME
+    type: GENERAL
+  - key: NPM_CONFIG_PRODUCTION
+    value: "false"
+    scope: BUILD_TIME
+    type: GENERAL
+  - key: NITRO_HOST
+    value: 0.0.0.0
+    scope: RUN_TIME
+    type: GENERAL
+  - key: NUXT_DJANGO_API_BASE
+    value: https://api.phoenixvanz.com/api
+    scope: RUN_TIME
+    type: GENERAL
+  - key: NUXT_PUBLIC_SITE_URL
+    value: ${APP_URL}
+    scope: RUN_TIME
+    type: GENERAL
+services:
+  - name: nuxt-web
+    environment_slug: node-js
+    github:
+      repo: DaveCheez/phoenix-vanz-frontend
+      branch: master
+      deploy_on_push: true
+    source_dir: /
+    build_command: npm run build
+    run_command: node .output/server/index.mjs
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 20
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 6
