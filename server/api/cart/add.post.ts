@@ -6,10 +6,12 @@ import {
   ensureCartId,
   isCartNotFoundError,
 } from "../../utils/cartSession";
+import { markCartResponsePrivate } from "../../utils/cartResponse";
 import { djangoFetch } from "../../utils/django";
 import { proxyError } from "../../utils/proxyError";
 
 export default defineEventHandler(async (event) => {
+  markCartResponsePrivate(event);
   const body = await readBody(event);
 
   if (!body?.product_id) {

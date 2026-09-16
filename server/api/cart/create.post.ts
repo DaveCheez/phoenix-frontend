@@ -1,4 +1,4 @@
-import { defineEventHandler } from "h3";
+import { defineEventHandler, readBody } from "h3";
 
 import {
   clearCartId,
@@ -7,11 +7,14 @@ import {
   readCartId,
   writeCartId,
 } from "../../utils/cartSession";
+import { markCartResponsePrivate } from "../../utils/cartResponse";
 import { djangoFetch } from "../../utils/django";
 import { proxyError } from "../../utils/proxyError";
 
 export default defineEventHandler(async (event) => {
-  const existingCartId = readCartId(event);
+  markCartResponsePrivate(event);
+  const body = await readBody(event).catch(() => ({}));
+  const existingCartId = readCartId(event, body?.cart_id);
 
   if (existingCartId) {
     try {

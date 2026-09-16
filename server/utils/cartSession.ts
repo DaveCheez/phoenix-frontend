@@ -37,9 +37,11 @@ export function normaliseCartId(value: unknown): string | null {
 }
 
 export function readCartId(event: H3Event, fallback?: unknown): string | null {
+  // An explicit cart ID from the browser wins over a stale cookie. The ID is
+  // still UUID-validated before it is used.
   return (
-    normaliseCartId(getCookie(event, CART_COOKIE)) ||
-    normaliseCartId(fallback)
+    normaliseCartId(fallback) ||
+    normaliseCartId(getCookie(event, CART_COOKIE))
   );
 }
 

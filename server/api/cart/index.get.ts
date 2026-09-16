@@ -7,6 +7,7 @@ import {
   isCartNotFoundError,
   writeCartId,
 } from "../../utils/cartSession";
+import { markCartResponsePrivate } from "../../utils/cartResponse";
 import { djangoFetch } from "../../utils/django";
 import { proxyError } from "../../utils/proxyError";
 
@@ -17,6 +18,7 @@ async function fetchCart(cartId: string) {
 }
 
 export default defineEventHandler(async (event) => {
+  markCartResponsePrivate(event);
   const query = getQuery(event);
   const fallback = typeof query.cart_id === "string" ? query.cart_id : null;
 

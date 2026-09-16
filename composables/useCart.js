@@ -5,12 +5,45 @@ let cartLoadPromise = null;
 let mutationQueue = Promise.resolve();
 let loadSequence = 0;
 
+const CART_STORAGE_KEY = "phoenix_cart_id";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const errorMessage = (error, fallback) =>
   error?.data?.error ||
   error?.data?.statusMessage ||
   error?.statusMessage ||
   error?.message ||
   fallback;
+
+const normaliseCartId = (value) => {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim().replace(/^"|"$/g, "");
+  return UUID_PATTERN.test(candidate) ? candidate : null;
+};
+
+const readStoredCartId = () => {
+  if (!import.meta.client) return null;
+
+  try {
+    return normaliseCartId(window.localStorage.getItem(CART_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredCartId = (cartId) => {
+  if (!import.meta.client) return;
+
+  try {
+    const validId = normaliseCartId(cartId);
+    if (validId) window.localStorage.setItem(CART_STORAGE_KEY, validId);
+    else window.localStorage.removeItem(CART_STORAGE_KEY);
+  } catch {
+    // The cart still works through the HttpOnly server cookie when storage is
+    // unavailable, for example in a privacy-restricted browser context.
+  }
+};
 
 export function useCart() {
   const cartItems = useState("cart-items", () => []);
@@ -29,33 +62,56 @@ export function useCart() {
   );
   const isCartMutating = computed(() => activeMutations.value > 0);
 
+  const rememberCartId = (cartId) => {
+    const validId = normaliseCartId(cartId);
+    if (!validId) return null;
+
+    cartIdState.value = validId;
+    writeStoredCartId(validId);
+    return validId;
+  };
+
+  const getCartId = () =>
+    normaliseCartId(cartIdState.value) || readStoredCartId();
+
   const applyCart = (cart) => {
     if (!cart || !Array.isArray(cart.items)) return false;
 
-    cartIdState.value = cart.id || cartIdState.value;
+    rememberCartId(cart.id || getCartId());
     cartItems.value = cart.items;
     cartTotal.value = String(cart.total ?? "0.00");
     cartError.value = "";
     return true;
   };
 
-  const resetCartState = () => {
+  const resetCartState = ({ clearStoredId = false } = {}) => {
     cartItems.value = [];
     cartTotal.value = "0.00";
     cartIdState.value = null;
     cartError.value = "";
+    if (clearStoredId) writeStoredCartId(null);
   };
 
   /**
-   * The Nuxt server owns the anonymous cart cookie. Browser code does not need
-   * to read or write the cart UUID, which avoids stale/JSON-encoded cookie
-   * mismatches after a deployment or database change.
+   * Keep two compatible identifiers for an anonymous cart:
+   * 1. the HttpOnly cookie owned by the Nuxt server; and
+   * 2. a UUID in localStorage that is sent explicitly with every request.
+   *
+   * The explicit UUID prevents a dropped, stale or host-specific cookie from
+   * causing the add and read requests to operate on different carts.
    */
   const ensureCartExists = async () => {
-    if (cartIdState.value) return cartIdState.value;
+    const existingCartId = getCartId();
+    if (existingCartId) {
+      rememberCartId(existingCartId);
+      return existingCartId;
+    }
 
     if (!cartCreationPromise) {
-      cartCreationPromise = $fetch("/api/cart/create", { method: "POST" })
+      cartCreationPromise = $fetch("/api/cart/create", {
+        method: "POST",
+        credentials: "same-origin",
+      })
         .then((response) => {
           if (response?.success === false || !response?.cart_id) {
             throw new Error(
@@ -63,9 +119,10 @@ export function useCart() {
             );
           }
 
-          cartIdState.value = response.cart_id;
+          const cartId = rememberCartId(response.cart_id);
+          if (!cartId) throw new Error("The cart API returned an invalid cart ID");
           if (response.cart) applyCart(response.cart);
-          return response.cart_id;
+          return cartId;
         })
         .finally(() => {
           cartCreationPromise = null;
@@ -75,7 +132,7 @@ export function useCart() {
     return await cartCreationPromise;
   };
 
-  const loadCart = async ({ force = false } = {}) => {
+  const loadCart = async ({ force = false, retry = true } = {}) => {
     if (cartLoadPromise && !force) return await cartLoadPromise;
 
     const requestNumber = ++loadSequence;
@@ -83,10 +140,19 @@ export function useCart() {
 
     const run = async () => {
       try {
-        await ensureCartExists();
-        const data = await $fetch("/api/cart", { method: "GET" });
+        const cartId = await ensureCartExists();
+        const data = await $fetch("/api/cart", {
+          method: "GET",
+          query: { cart_id: cartId },
+          credentials: "same-origin",
+          cache: "no-store",
+        });
 
         if (data?.success === false) {
+          if (retry && data.code === "CART_NOT_FOUND") {
+            resetCartState({ clearStoredId: true });
+            return await loadCart({ force: true, retry: false });
+          }
           throw new Error(data.error || "The cart could not be loaded");
         }
 
@@ -106,10 +172,14 @@ export function useCart() {
       }
     };
 
-    cartLoadPromise = run().finally(() => {
-      cartLoadPromise = null;
-    });
-    return await cartLoadPromise;
+    const currentPromise = run();
+    cartLoadPromise = currentPromise;
+
+    try {
+      return await currentPromise;
+    } finally {
+      if (cartLoadPromise === currentPromise) cartLoadPromise = null;
+    }
   };
 
   const markItemPending = (itemId, pending) => {
@@ -143,6 +213,8 @@ export function useCart() {
     loadSequence += 1;
     isCartLoading.value = false;
 
+    if (response?.cart_id) rememberCartId(response.cart_id);
+
     if (!applyCart(response?.cart)) {
       await loadCart({ force: true });
     }
@@ -152,10 +224,12 @@ export function useCart() {
 
   const addToCart = async (productId, quantity = 1, options = {}) =>
     await enqueueMutation(async () => {
-      await ensureCartExists();
+      const cartId = await ensureCartExists();
       const response = await $fetch("/api/cart/add", {
         method: "POST",
+        credentials: "same-origin",
         body: {
+          cart_id: cartId,
           product_id: productId,
           quantity: Number(quantity),
           options,
@@ -169,11 +243,13 @@ export function useCart() {
 
   const updateCartItem = async (itemId, quantity) =>
     await enqueueMutation(async () => {
-      await ensureCartExists();
+      const cartId = await ensureCartExists();
       const response = await $fetch("/api/cart/update", {
         method: "POST",
+        credentials: "same-origin",
         body: {
           item_id: itemId,
+          cart_id: cartId,
           quantity: Number(quantity),
         },
       });
@@ -185,10 +261,11 @@ export function useCart() {
 
   const removeFromCart = async (itemId) =>
     await enqueueMutation(async () => {
-      await ensureCartExists();
+      const cartId = await ensureCartExists();
       const response = await $fetch("/api/cart/remove", {
         method: "POST",
-        body: { item_id: itemId },
+        credentials: "same-origin",
+        body: { item_id: itemId, cart_id: cartId },
       });
       return await handleMutationResponse(
         response,
@@ -198,9 +275,11 @@ export function useCart() {
 
   const clearCart = async () =>
     await enqueueMutation(async () => {
-      await ensureCartExists();
+      const cartId = await ensureCartExists();
       const response = await $fetch("/api/cart/clear", {
         method: "DELETE",
+        credentials: "same-origin",
+        body: { cart_id: cartId },
       });
       return await handleMutationResponse(
         response,
@@ -220,6 +299,7 @@ export function useCart() {
     isCartMutating,
     pendingItemIds,
     isItemPending,
+    getCartId,
     loadCart,
     addToCart,
     updateCartItem,
