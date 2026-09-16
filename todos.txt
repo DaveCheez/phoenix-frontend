@@ -19,3 +19,5 @@
 * Add at least one Home Slide in Django admin and verify desktop/mobile images.
 * Test cart add, increment, decrement, direct quantity entry, remove and stale-cookie recovery.
 * Confirm `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` uses a `pk_test_...` key in non-production testing.
+
+xx
