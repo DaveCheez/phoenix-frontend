@@ -7,7 +7,7 @@ const productCategories = ref([]);
 
 const isProductMobileOpen = ref(false);
 
-const { cartItems, loadCart } = useCart();
+const { cartItemCount, loadCart } = useCart();
 
 // Fetch categories from API
 const fetchCategories = async () => {
@@ -20,9 +20,8 @@ const fetchCategories = async () => {
   }
 };
 
-onMounted(() => {
-  fetchCategories();
-  loadCart();
+onMounted(async () => {
+  await Promise.allSettled([fetchCategories(), loadCart()]);
 });
 
 const productCloseTimeout = ref(null);
@@ -133,12 +132,12 @@ watch(isOpen, (val) => {
         </li>
         <li>
           <NuxtLink to="/cart" class="relative text-white hover:text-blue-400">
-            <Icon name="heroicons-outline:shopping-cart" class="w-6 h-6" />
+            <Icon name="heroicons:shopping-cart" class="w-6 h-6" />
             <span
-              v-if="cartItems.length"
+              v-if="cartItemCount"
               class="absolute -top-2 -right-2 bg-red-500 text-xs w-5 h-5 flex items-center justify-center rounded-full"
             >
-              {{ cartItems.length }}
+              {{ cartItemCount }}
             </span>
           </NuxtLink>
         </li>
@@ -207,7 +206,7 @@ watch(isOpen, (val) => {
                 class="text-lg text-white hover:text-blue-500"
                 @click="isOpen = false"
               >
-                Cart ({{ cartItems.length || 0 }})
+                Cart ({{ cartItemCount }})
               </NuxtLink>
           </div>
         </div>

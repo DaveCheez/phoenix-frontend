@@ -2,7 +2,24 @@
   <div class="max-w-xl mx-auto p-6">
     <h1 class="text-2xl font-bold mb-4">Checkout</h1>
 
-    <div v-if="step === 1">
+    <div
+      v-if="!checkoutEnabled"
+      class="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950"
+    >
+      <h2 class="text-lg font-semibold">Online payment is temporarily unavailable</h2>
+      <p class="mt-2">
+        Phoenix Vanz will confirm the correct fitment, fitting date, lead time and
+        payment details directly with you.
+      </p>
+      <NuxtLink
+        to="/contact"
+        class="mt-4 inline-flex rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-black"
+      >
+        Contact Phoenix Vanz
+      </NuxtLink>
+    </div>
+
+    <div v-else-if="step === 1">
       <form @submit.prevent="goToPayment" class="space-y-4">
         <div>
           <label class="block mb-1">Full Name</label>
@@ -77,11 +94,15 @@
 </template>
 
 <script setup>
-import { nextTick, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
 const config = useRuntimeConfig();
+const checkoutEnabled = computed(() =>
+  config.public.checkoutEnabled === true ||
+  String(config.public.checkoutEnabled).toLowerCase() === "true",
+);
 const step = ref(1);
 const paymentError = ref("");
 const isPaying = ref(false);
@@ -114,9 +135,20 @@ const goToPayment = async () => {
 };
 
 const loadStripe = async () => {
-  const publishableKey = config.public.stripePk;
+  const publishableKey = String(
+    config.public.stripePublishableKey || config.public.stripePk || "",
+  ).trim();
+
   if (!publishableKey) {
-    throw new Error("Stripe is not configured for this deployment.");
+    throw new Error(
+      "Stripe is not configured. Set NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.",
+    );
+  }
+
+  if (!/^pk_(test|live)_/.test(publishableKey)) {
+    throw new Error(
+      "The Stripe browser key is invalid. Use a publishable key beginning pk_test_ or pk_live_ — never a secret key.",
+    );
   }
 
   const stripeJs = await import("@stripe/stripe-js");

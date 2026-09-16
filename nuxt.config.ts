@@ -20,6 +20,9 @@ export default defineNuxtConfig({
 
     public: {
       siteUrl: "http://localhost:3000",
+      checkoutEnabled: false,
+      stripePublishableKey: "",
+      // Temporary backwards compatibility with older deployments.
       stripePk: "",
     },
   },

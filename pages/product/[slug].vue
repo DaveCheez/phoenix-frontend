@@ -161,7 +161,6 @@ import { Swiper, SwiperSlide } from "swiper/vue";
 import "swiper/css";
 import "swiper/css/navigation";
 import { Navigation } from "swiper/modules";
-import { eventBus } from "@/utils/eventBus";
 import ProductOptions from "@/components/ProductOptions.vue";
 
 const route = useRoute();
@@ -175,6 +174,7 @@ const galleryOpen = ref(false);
 const isAddingToCart = ref(false); // false | 'loading' | 'added'
 
 const { addToCart: addToCartComposable } = useCart();
+const toast = useToast();
 
 const fetchProduct = async () => {
   try {
@@ -226,13 +226,16 @@ const addToCart = async () => {
   try {
     await addToCartComposable(product.value.id, 1, selectedOptions.value);
     isAddingToCart.value = 'added';
+    toast.success(`${product.value.name} added to your cart.`);
     // Revert button text after a short delay
     setTimeout(() => {
       isAddingToCart.value = false;
     }, 2000);
   } catch (error) {
     console.error("Failed to add item to cart:", error);
-    alert("There was an issue adding the item to your cart. Please try again.");
+    toast.error(
+      error?.message || "There was an issue adding the item to your cart.",
+    );
     isAddingToCart.value = false;
   }
 };

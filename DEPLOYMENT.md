@@ -52,7 +52,8 @@ better to create and commit `package-lock.json` so future builds are reproducibl
 Add these through DigitalOcean's Environment Variables screen when required:
 
 ```text
-NUXT_PUBLIC_STRIPE_PK=<Stripe publishable key beginning pk_...>
+NUXT_PUBLIC_CHECKOUT_ENABLED=false
+NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=<Stripe publishable key beginning pk_...>
 NUXT_GOOGLE_PLACES_API_KEY=<server-only Google Places API key>
 NUXT_GOOGLE_PLACES_PLACE_ID=ChIJ8_c21s8Ke0gRA_p2G3v4g3g
 ```
@@ -105,3 +106,18 @@ npm run dev
 ```
 
 The local Django API default is `http://127.0.0.1:8000/api`.
+
+## Backlog feature deployment
+
+The frontend now expects the slideshow endpoint at the configured Django API
+base and falls back to the bundled homepage images when no active slides exist.
+
+For Stripe.js, set the browser-safe publishable key on the frontend app:
+
+```text
+NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+```
+
+Use a `pk_test_...` value while testing. Never place `sk_test_...` or
+`sk_live_...` in the frontend. The server-side order and payment implementation
+is still intentionally disabled until the order rules are confirmed.

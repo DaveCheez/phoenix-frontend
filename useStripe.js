@@ -8,7 +8,7 @@ export const useStripe = () => {
   const config = useRuntimeConfig();
 
   if (!stripePromise) {
-    stripePromise = loadStripe(config.public.stripePk);
+    stripePromise = loadStripe((config.public.stripePublishableKey || config.public.stripePk));
   }
 
   onMounted(async () => {
