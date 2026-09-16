@@ -34,6 +34,10 @@ envs:
     value: ${APP_URL}
     scope: RUN_TIME
     type: GENERAL
+  - key: NUXT_PUBLIC_CHECKOUT_ENABLED
+    value: "false"
+    scope: RUN_TIME
+    type: GENERAL
 services:
   - name: nuxt-web
     environment_slug: node-js

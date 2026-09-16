@@ -3,11 +3,19 @@
 ## High Priority Bugs
 * **Cart**: Re-implement backend cart API views (create, add, get, remove). --done
 * **Cart**: Fix bug where adding a product multiple times creates separate cart items instead of increasing quantity. --done
-* **Stripe**: Resolve "Invalid API Key" error by correcting environment variable setup.
+* **Stripe**: Correct public-key runtime configuration and reject secret/malformed keys with a clear message. --done
+* **Stripe / Orders**: Build the real server-side order and payment flow before enabling live online checkout. --pending business rules
+* **Cart Options**: Persist selected product options and their price adjustments before taking online payments. --pending data-model decision
 
 ## Medium Priority Features & Improvements
-* **Cart**: Implement "update quantity" functionality in the cart.
-* **Slideshow**: Update the homepage slideshow with dynamic content.
-* **UX**: Add toast notifications for user feedback (e.g., "Item added to cart").
-* **Refactor**: Centralize API URLs using Nuxt runtime config instead of hardcoding them.
-* **Refactor**: Improve cart state management to prevent potential race conditions.
+* **Cart**: Implement update quantity functionality in the cart. --done
+* **Slideshow**: Update the homepage slideshow with dynamic Django-admin content and safe static fallbacks. --done
+* **UX**: Add global toast notifications for cart feedback and errors. --done
+* **Refactor**: Centralize Django API URLs using Nuxt runtime config and Nitro proxy routes. --done
+* **Refactor**: Improve cart state management to prevent duplicate creation, overlapping mutations and stale responses. --done
+
+## Follow-up Testing
+* Run Django migrations against the Neon development database.
+* Add at least one Home Slide in Django admin and verify desktop/mobile images.
+* Test cart add, increment, decrement, direct quantity entry, remove and stale-cookie recovery.
+* Confirm `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` uses a `pk_test_...` key in non-production testing.
