@@ -25,6 +25,7 @@
     "@nuxtjs/i18n": "8.3.3",
     "@nuxtjs/seo": "2.0.0-rc.21",
     "@stripe/stripe-js": "5.6.0",
+    "@vue/server-renderer": "3.5.12",
     "@vueuse/nuxt": "10.11.0",
     "dom-serializer": "2.0.0",
     "htmlparser2": "10.0.0",
