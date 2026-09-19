@@ -30,7 +30,7 @@
     "dom-serializer": "2.0.0",
     "htmlparser2": "10.0.0",
     "mitt": "3.0.1",
-    "nuxt": "3.14.159",
+    "nuxt": "3.14.1592",
     "nuxt-og-image": "3.0.2",
     "nuxt-schema-org": "3.4.0",
     "swiper": "11.2.5",
@@ -51,5 +51,8 @@
     "postcss": "8.4.49",
     "tailwindcss": "3.4.17",
     "vitest": "2.1.9"
+  },
+    "overrides": {
+      "nitropack": "2.10.4"
   }
 }

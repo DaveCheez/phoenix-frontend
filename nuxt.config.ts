@@ -27,9 +27,18 @@ export default defineNuxtConfig({
     },
   },
 
-  nitro: {
-    preset: "node-server",
-  },
+nitro: {
+  preset: "node-server",
+
+  // Bundle the Vue SSR runtime into the Nitro output instead of relying
+  // on Nitro's traced external copy in .output/server/node_modules.
+  // externals: {
+  //   inline: [
+  //     /^vue(?:\/|$)/,
+  //     /^@vue\//,
+  //   ],
+  // },
+},
 
   compatibilityDate: "2025-03-11",
 });
