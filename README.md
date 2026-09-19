@@ -1,75 +1,29 @@
-# Nuxt Minimal Starter
+# Phoenix Vanz frontend
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+Nuxt frontend for Phoenix Vanz, backed by the Django API.
 
-## Setup
-
-Make sure to install dependencies:
+## Development
 
 ```bash
-# npm
+cp .env.example .env
 npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
-```
-
-## Development Server
-
-Start the development server on `http://localhost:3000`:
-
-```bash
-# npm
 npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
-
-Build the application for production:
+## Production build
 
 ```bash
-# npm
 npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
+npm run start
 ```
 
-Locally preview production build:
+## Docker
 
 ```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
+docker build -t phoenix-vanz-frontend .
+docker run --rm -p 8080:8080 \
+  -e NUXT_DJANGO_API_BASE=http://host.docker.internal:8000/api \
+  phoenix-vanz-frontend
 ```
 
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+See `DEPLOYMENT.md` for DigitalOcean instructions.

@@ -1,11 +1,14 @@
 import { defineEventHandler } from "h3";
-import { djangoFetch } from "../utils/django";
 
-export default defineEventHandler(async () => {
+import { djangoFetch } from "../utils/django";
+import { cachePublicResponse, throwPublicProxyError } from "../utils/publicProxy";
+
+export default defineEventHandler(async (event) => {
   try {
-    return await djangoFetch("slides/");
-  } catch (error) {
-    console.error("[Django slides proxy error]", error);
-    return [];
+    const data = await djangoFetch(event, "slides/");
+    cachePublicResponse(event, 60, 300);
+    return data;
+  } catch (error: any) {
+    throwPublicProxyError("slides", error);
   }
 });

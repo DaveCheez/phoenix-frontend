@@ -1,11 +1,14 @@
 import { defineEventHandler } from "h3";
-import { djangoFetch } from "../utils/django";
 
-export default defineEventHandler(async () => {
+import { djangoFetch } from "../utils/django";
+import { cachePublicResponse, throwPublicProxyError } from "../utils/publicProxy";
+
+export default defineEventHandler(async (event) => {
   try {
-    return await djangoFetch("reviews/");
-  } catch (error) {
-    console.error("[Django reviews proxy error]", error);
-    return { error: "Unable to load reviews" };
+    const data = await djangoFetch(event, "reviews/");
+    cachePublicResponse(event, 300, 900);
+    return data;
+  } catch (error: any) {
+    throwPublicProxyError("reviews", error);
   }
 });

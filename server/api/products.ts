@@ -1,5 +1,7 @@
 import { defineEventHandler, getQuery } from "h3";
+
 import { djangoFetch } from "../utils/django";
+import { cachePublicResponse, throwPublicProxyError } from "../utils/publicProxy";
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event);
@@ -10,9 +12,10 @@ export default defineEventHandler(async (event) => {
     : "";
 
   try {
-    return await djangoFetch(`products/${suffix}`);
-  } catch (error) {
-    console.error("[Django products proxy error]", error);
-    return { error: "Failed to fetch products from Django API" };
+    const data = await djangoFetch(event, `products/${suffix}`);
+    cachePublicResponse(event, 30, 120);
+    return data;
+  } catch (error: any) {
+    throwPublicProxyError("products", error);
   }
 });

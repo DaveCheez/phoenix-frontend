@@ -1,4 +1,4 @@
-import { defineEventHandler, readBody } from "h3";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 import {
   clearCartId,
@@ -12,9 +12,10 @@ import { proxyError } from "../../utils/proxyError";
 
 export default defineEventHandler(async (event) => {
   markCartResponsePrivate(event);
-  const body = await readBody(event);
+  const body = await readBody<Record<string, any>>(event).catch(() => ({}));
 
   if (!body?.product_id) {
+    setResponseStatus(event, 400);
     return {
       success: false,
       code: "MISSING_FIELDS",
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const add = async (cartId: string) =>
-    await djangoFetch("cart/add/", {
+    await djangoFetch(event, "cart/add/", {
       method: "POST",
       body: {
         cart_id: cartId,
@@ -48,6 +49,6 @@ export default defineEventHandler(async (event) => {
     }
   } catch (error: any) {
     console.error("Cart add proxy error:", error?.data || error);
-    return proxyError(error, "Failed to add item to cart");
+    return proxyError(event, error, "Failed to add item to cart");
   }
 });

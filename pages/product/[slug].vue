@@ -1,128 +1,255 @@
+<script setup>
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { useRoute } from "vue-router";
+import { Navigation } from "swiper/modules";
+import { Swiper, SwiperSlide } from "swiper/vue";
+import "swiper/css";
+import "swiper/css/navigation";
+
+import ProductOptions from "@/components/ProductOptions.vue";
+import logoUrl from "~/assets/images/logo.png";
+import { errorText } from "~/utils/apiData";
+
+const route = useRoute();
+const slug = computed(() => String(route.params.slug || ""));
+
+const {
+  data: productPayload,
+  error: productError,
+  status,
+  refresh,
+} = await useFetch(() => `/api/products/${encodeURIComponent(slug.value)}`, {
+  key: `product-${slug.value}`,
+  default: () => null,
+});
+
+const product = computed(() => {
+  const raw = productPayload.value;
+  if (!raw || typeof raw !== "object" || raw.error) return null;
+
+  const images = Array.isArray(raw.productimage_set)
+    ? raw.productimage_set.map((item) => item?.image).filter(Boolean)
+    : [];
+
+  return {
+    ...raw,
+    images,
+  };
+});
+
+const selectedImage = ref(null);
+const selectedOptions = ref({});
+const activeTab = ref("description");
+const galleryOpen = ref(false);
+const isAddingToCart = ref(false);
+
+const { addToCart: addToCartComposable } = useCart();
+const toast = useToast();
+
+watch(
+  () => product.value?.images,
+  (images) => {
+    selectedImage.value = Array.isArray(images) && images.length ? images[0] : null;
+  },
+  { immediate: true },
+);
+
+const handleKeydown = (event) => {
+  if (!galleryOpen.value) return;
+  if (event.key === "Escape") closeGallery();
+  if (event.key === "ArrowRight") nextImage();
+  if (event.key === "ArrowLeft") previousImage();
+};
+
+const openGallery = () => {
+  if (!product.value?.images?.length || !import.meta.client) return;
+  galleryOpen.value = true;
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", handleKeydown);
+};
+
+const closeGallery = () => {
+  galleryOpen.value = false;
+  if (!import.meta.client) return;
+  document.body.style.overflow = "";
+  document.removeEventListener("keydown", handleKeydown);
+};
+
+const nextImage = () => {
+  const images = product.value?.images || [];
+  if (!images.length) return;
+  const currentIndex = images.indexOf(selectedImage.value || images[0]);
+  selectedImage.value = images[(currentIndex + 1) % images.length];
+};
+
+const previousImage = () => {
+  const images = product.value?.images || [];
+  if (!images.length) return;
+  const currentIndex = images.indexOf(selectedImage.value || images[0]);
+  selectedImage.value = images[(currentIndex - 1 + images.length) % images.length];
+};
+
+const addToCart = async () => {
+  if (!product.value || isAddingToCart.value) return;
+
+  isAddingToCart.value = "loading";
+  try {
+    await addToCartComposable(product.value.id, 1, selectedOptions.value);
+    isAddingToCart.value = "added";
+    toast.success(`${product.value.name} added to your cart.`);
+    window.setTimeout(() => {
+      isAddingToCart.value = false;
+    }, 1800);
+  } catch (error) {
+    console.error("Failed to add item to cart:", error);
+    toast.error(errorText(error, "There was an issue adding the item to your cart."));
+    isAddingToCart.value = false;
+  }
+};
+
+onBeforeUnmount(closeGallery);
+
+useHead(() => ({
+  title: product.value?.name || "Product",
+  meta: product.value?.description
+    ? [{ name: "description", content: product.value.description.slice(0, 155) }]
+    : [],
+}));
+</script>
+
 <template>
-  <div class="min-h-screen py-16 bg-gray-50">
+  <div class="min-h-screen bg-gray-50 py-16">
     <div class="container mx-auto max-w-6xl px-6">
+      <div v-if="status === 'pending'" class="py-24 text-center">
+        <Icon name="svg-spinners:ring-resize" class="mx-auto h-8 w-8" />
+        <p class="mt-3 text-gray-600">Loading product…</p>
+      </div>
+
+      <div v-else-if="productError || !product" class="py-24 text-center">
+        <h1 class="text-3xl font-semibold">Product unavailable</h1>
+        <p class="mt-3 text-gray-600">
+          We could not load this product from the catalogue.
+        </p>
+        <button
+          type="button"
+          class="mt-6 rounded bg-gray-900 px-5 py-3 text-white"
+          @click="refresh"
+        >
+          Try again
+        </button>
+      </div>
+
       <div
-        v-if="product"
-        class="grid grid-cols-1 lg:grid-cols-2 gap-10 bg-white p-6 sm:p-8 lg:p-10 rounded-lg shadow-lg"
+        v-else
+        class="grid grid-cols-1 gap-10 rounded-lg bg-white p-6 shadow-lg sm:p-8 lg:grid-cols-2 lg:p-10"
       >
-        <!-- Images -->
-        <div class="flex flex-col items-center w-full">
+        <div class="flex w-full flex-col items-center">
           <img
-            :src="selectedImage || product.images[0] || '/placeholder.jpg'"
+            :src="selectedImage || product.images[0] || logoUrl"
             :alt="product.name"
-            class="w-full max-w-md object-cover rounded-lg shadow-md cursor-pointer transition hover:scale-105"
-            @click="product.images.length ? openGallery() : null"
+            class="w-full max-w-md rounded-lg bg-gray-100 object-cover shadow-md transition"
+            :class="{ 'cursor-pointer hover:scale-[1.01]': product.images.length }"
+            @click="openGallery"
           />
+
           <Swiper
-            v-if="product.images.length"
+            v-if="product.images.length > 1"
             :modules="[Navigation]"
             :slides-per-view="3"
             :space-between="8"
             navigation
-            class="w-full mt-4"
+            class="mt-4 w-full"
           >
             <SwiperSlide
-              v-for="(image, index) in product.images"
-              :key="index"
+              v-for="image in product.images"
+              :key="image"
               class="!w-24"
             >
-              <img
-                :src="image"
-                :alt="product.name"
-                class="w-24 h-24 object-cover rounded cursor-pointer border border-gray-300 hover:border-black transition"
-                :class="{ 'border-black': selectedImage === image }"
-                @click="selectedImage = image"
-              />
+              <button type="button" @click="selectedImage = image">
+                <img
+                  :src="image"
+                  :alt="product.name"
+                  class="h-24 w-24 rounded border object-cover transition hover:border-black"
+                  :class="selectedImage === image ? 'border-black' : 'border-gray-300'"
+                />
+              </button>
             </SwiperSlide>
           </Swiper>
         </div>
 
-        <!-- Details -->
         <div class="flex flex-col">
           <h1 class="text-4xl font-light tracking-wide text-gray-900">
             {{ product.name }}
           </h1>
 
-          <div class="flex items-center space-x-6 mt-6">
-            <p class="text-3xl font-semibold text-gray-900">
-              £{{ Number(product.price).toFixed(2) }}
-            </p>
-            <!-- <span
-              class="text-sm px-4 py-1 bg-gray-200 text-gray-800 rounded-full font-medium"
-            >
-              In Stock
-            </span> -->
-          </div>
+          <p class="mt-6 text-3xl font-semibold text-gray-900">
+            £{{ Number(product.price).toFixed(2) }}
+          </p>
 
-          <p class="text-gray-700 mt-8 leading-relaxed text-lg">
+          <p class="mt-8 text-lg leading-relaxed text-gray-700">
             {{ product.shortDescription || product.description }}
           </p>
 
-          <!-- Options -->
           <ProductOptions
             v-if="product.option_groups?.length"
             :option-groups="product.option_groups"
             @update:selections="selectedOptions = $event"
           />
 
-          <!-- Tabs -->
           <div class="mt-8 border-b">
             <button
+              type="button"
+              class="border-b-2 pb-2 text-lg font-light uppercase tracking-wide"
+              :class="activeTab === 'description' ? 'border-black text-black' : 'border-transparent text-gray-500'"
               @click="activeTab = 'description'"
-              class="pb-2 text-lg font-light border-b-2 tracking-wide uppercase"
-              :class="
-                activeTab === 'description'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500'
-              "
             >
               Description
             </button>
             <button
+              type="button"
+              class="ml-8 border-b-2 pb-2 text-lg font-light uppercase tracking-wide"
+              :class="activeTab === 'specs' ? 'border-black text-black' : 'border-transparent text-gray-500'"
               @click="activeTab = 'specs'"
-              class="ml-8 pb-2 text-lg font-light border-b-2 tracking-wide uppercase"
-              :class="
-                activeTab === 'specs'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500'
-              "
             >
               Specifications
             </button>
           </div>
 
-          <div class="mt-6 text-gray-700 leading-relaxed text-lg">
-            <div v-if="activeTab === 'description'">
-              <p>{{ product.description }}</p>
-            </div>
-            <div v-if="activeTab === 'specs'">
-              <p v-if="product.specs">{{ product.specs }}</p>
-              <p v-else>No specifications available.</p>
-            </div>
+          <div class="mt-6 text-lg leading-relaxed text-gray-700">
+            <p v-if="activeTab === 'description'">
+              {{ product.description }}
+            </p>
+            <p v-else-if="product.specs">{{ product.specs }}</p>
+            <p v-else>No specifications available.</p>
           </div>
 
           <button
-            class="mt-10 border border-black text-black bg-white hover:bg-black hover:text-white transition py-4 px-8 rounded-lg font-light text-lg tracking-wide uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button"
+            class="mt-10 rounded-lg border border-black bg-white px-8 py-4 text-lg font-light uppercase tracking-wide text-black transition hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="Boolean(isAddingToCart)"
             @click="addToCart"
-            :disabled="isAddingToCart"
           >
-            <span v-if="isAddingToCart === 'loading'">Adding...</span>
-            <span v-else-if="isAddingToCart === 'added'">Added!</span>
+            <span v-if="isAddingToCart === 'loading'">Adding…</span>
+            <span v-else-if="isAddingToCart === 'added'">Added</span>
             <span v-else>Add to Cart</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Gallery -->
-    <teleport to="body">
+    <Teleport to="body">
       <div
-        v-if="galleryOpen"
-        class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50"
+        v-if="galleryOpen && product"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="`${product.name} image gallery`"
         @click.self="closeGallery"
       >
         <button
-          class="absolute top-5 right-5 text-white text-3xl"
+          type="button"
+          class="absolute right-5 top-5 text-4xl text-white"
+          aria-label="Close gallery"
           @click="closeGallery"
         >
           &times;
@@ -130,116 +257,33 @@
 
         <button
           v-if="product.images.length > 1"
-          class="absolute left-5 text-white text-3xl bg-black bg-opacity-50 p-4 rounded-full"
-          @click.stop="prevImage"
+          type="button"
+          class="absolute left-5 rounded-full bg-black/50 p-4 text-3xl text-white"
+          aria-label="Previous image"
+          @click.stop="previousImage"
         >
           &#8592;
         </button>
 
         <img
           :src="selectedImage || product.images[0]"
-          alt="Gallery Image"
-          class="max-w-3xl max-h-screen object-contain"
+          :alt="product.name"
+          class="max-h-[90vh] max-w-[90vw] object-contain"
         />
 
         <button
           v-if="product.images.length > 1"
-          class="absolute right-5 text-white text-3xl bg-black bg-opacity-50 p-4 rounded-full"
+          type="button"
+          class="absolute right-5 rounded-full bg-black/50 p-4 text-3xl text-white"
+          aria-label="Next image"
           @click.stop="nextImage"
         >
           &#8594;
         </button>
       </div>
-    </teleport>
+    </Teleport>
   </div>
 </template>
-
-<script setup>
-import { ref, onMounted } from "vue";
-import { useRoute } from "vue-router";
-import { Swiper, SwiperSlide } from "swiper/vue";
-import "swiper/css";
-import "swiper/css/navigation";
-import { Navigation } from "swiper/modules";
-import ProductOptions from "@/components/ProductOptions.vue";
-
-const route = useRoute();
-const slug = route.params.slug;
-
-const product = ref(null);
-const selectedImage = ref(null);
-const selectedOptions = ref({});
-const activeTab = ref("description");
-const galleryOpen = ref(false);
-const isAddingToCart = ref(false); // false | 'loading' | 'added'
-
-const { addToCart: addToCartComposable } = useCart();
-const toast = useToast();
-
-const fetchProduct = async () => {
-  try {
-    const res = await $fetch(`/api/products/${slug}`);
-    product.value = {
-      ...res,
-      images: res.productimage_set.map((img) => img.image),
-    };
-  } catch (err) {
-    console.error("Failed to load product", err);
-  }
-};
-
-onMounted(fetchProduct);
-
-const openGallery = () => {
-  galleryOpen.value = true;
-  document.addEventListener("keydown", handleKeydown);
-};
-
-const closeGallery = () => {
-  galleryOpen.value = false;
-  document.removeEventListener("keydown", handleKeydown);
-};
-
-const handleKeydown = (e) => {
-  if (e.key === "Escape") closeGallery();
-  if (e.key === "ArrowRight") nextImage();
-  if (e.key === "ArrowLeft") prevImage();
-};
-
-const nextImage = () => {
-  const images = product.value.images;
-  const currentIndex = images.indexOf(selectedImage.value || images[0]);
-  selectedImage.value = images[(currentIndex + 1) % images.length];
-};
-
-const prevImage = () => {
-  const images = product.value.images;
-  const currentIndex = images.indexOf(selectedImage.value || images[0]);
-  selectedImage.value =
-    images[(currentIndex - 1 + images.length) % images.length];
-};
-
-const addToCart = async () => {
-  if (isAddingToCart.value) return;
-
-  isAddingToCart.value = 'loading';
-  try {
-    await addToCartComposable(product.value.id, 1, selectedOptions.value);
-    isAddingToCart.value = 'added';
-    toast.success(`${product.value.name} added to your cart.`);
-    // Revert button text after a short delay
-    setTimeout(() => {
-      isAddingToCart.value = false;
-    }, 2000);
-  } catch (error) {
-    console.error("Failed to add item to cart:", error);
-    toast.error(
-      error?.message || "There was an issue adding the item to your cart.",
-    );
-    isAddingToCart.value = false;
-  }
-};
-</script>
 
 <style>
 .swiper-button-next,

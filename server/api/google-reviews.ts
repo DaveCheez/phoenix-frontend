@@ -1,10 +1,14 @@
-import { createError, defineEventHandler } from "h3";
 import { useRuntimeConfig } from "#imports";
+import { createError, defineEventHandler } from "h3";
 
-export default defineEventHandler(async () => {
-  const config = useRuntimeConfig();
-  const apiKey = String(config.googlePlacesApiKey || "");
-  const placeId = String(config.googlePlacesPlaceId || "");
+export default defineEventHandler(async (event) => {
+  const config = useRuntimeConfig(event);
+  const apiKey = String(
+    process.env.NUXT_GOOGLE_PLACES_API_KEY || config.googlePlacesApiKey || "",
+  ).trim();
+  const placeId = String(
+    process.env.NUXT_GOOGLE_PLACES_PLACE_ID || config.googlePlacesPlaceId || "",
+  ).trim();
 
   if (!apiKey || !placeId) {
     throw createError({
@@ -21,13 +25,14 @@ export default defineEventHandler(async () => {
 
   try {
     const response: any = await $fetch(
-      `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`
+      `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`,
+      { timeout: 10_000, retry: 0 },
     );
 
-    if (response.status !== "OK" || !response.result?.reviews) {
+    if (response.status !== "OK" || !Array.isArray(response.result?.reviews)) {
       console.error(
         "Google Places API error:",
-        response.error_message || response.status
+        response.error_message || response.status,
       );
       return [];
     }

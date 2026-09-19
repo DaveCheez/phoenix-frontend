@@ -1,12 +1,16 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import beachImage from "~/assets/images/home/crafter-beach.jpg";
+import bikeImage from "~/assets/images/home/crafter-bike.jpg";
+import sidebarImage from "~/assets/images/home/sidebar.jpg";
+import { asArray } from "~/utils/apiData";
 
 const fallbackSlides = [
   {
     id: "fallback-beach",
     title: "Phoenix Vanz",
     subtitle: "Bespoke fabrication for your van",
-    image: "/images/home/crafter-beach.jpg",
+    image: beachImage,
     mobile_image: null,
     button_text: "Explore our products",
     button_url: "#products",
@@ -15,7 +19,7 @@ const fallbackSlides = [
     id: "fallback-bike",
     title: "Built for work and adventure",
     subtitle: "Campervan accessories designed and fitted in Lancashire",
-    image: "/images/home/crafter-bike.jpg",
+    image: bikeImage,
     mobile_image: null,
     button_text: "Shop by product",
     button_url: "#products",
@@ -24,32 +28,38 @@ const fallbackSlides = [
     id: "fallback-sidebar",
     title: "Made around your van",
     subtitle: "Roof racks, ladders, carriers and bespoke fabrication",
-    image: "/images/home/sidebar.jpg",
+    image: sidebarImage,
     mobile_image: null,
     button_text: "Contact Phoenix Vanz",
     button_url: "/contact",
   },
 ];
 
-const { data: remoteSlides } = await useFetch("/api/slides", {
+const { data: slidePayload } = await useFetch("/api/slides", {
+  key: "home-slides",
   default: () => [],
 });
 
-const slides = computed(() =>
-  Array.isArray(remoteSlides.value) && remoteSlides.value.length
-    ? remoteSlides.value
-    : fallbackSlides,
+const remoteSlides = computed(() =>
+  asArray(slidePayload.value, ["slides"]).filter((slide) => slide?.image),
 );
+const slides = computed(() =>
+  remoteSlides.value.length ? remoteSlides.value : fallbackSlides,
+);
+
 const currentIndex = ref(0);
-const currentSlide = computed(() => slides.value[currentIndex.value] || slides.value[0]);
+const currentSlide = computed(
+  () => slides.value[currentIndex.value] || slides.value[0],
+);
 let intervalId = null;
 
 const stopAutoplay = () => {
-  if (intervalId) window.clearInterval(intervalId);
+  if (intervalId && import.meta.client) window.clearInterval(intervalId);
   intervalId = null;
 };
 
 const startAutoplay = () => {
+  if (!import.meta.client) return;
   stopAutoplay();
   if (slides.value.length < 2) return;
 
@@ -78,7 +88,7 @@ watch(
   () => slides.value.length,
   () => {
     currentIndex.value = 0;
-    if (import.meta.client) startAutoplay();
+    startAutoplay();
   },
 );
 

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted } from "vue";
+import logoUrl from "~/assets/images/logo.png";
 
 const {
   cartItems,
@@ -113,7 +114,7 @@ const removeItem = async (item) => {
                   class="shrink-0"
                 >
                   <img
-                    :src="item.image || '/images/logo.png'"
+                    :src="item.image || logoUrl"
                     :alt="item.name"
                     class="mr-6 h-24 w-24 rounded-md border object-cover"
                   />

@@ -20,4 +20,8 @@
 * Test cart add, increment, decrement, direct quantity entry, remove and stale-cookie recovery.
 * Confirm `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` uses a `pk_test_...` key in non-production testing.
 
-xx
+## Deployment Stabilisation
+* **Nuxt runtime**: Upgrade away from the broken 3.14 dependency set. --done
+* **DigitalOcean**: Deploy the complete Nuxt output with a Dockerfile instead of buildpack copy/symlink workarounds. --done
+* **API diagnostics**: Return real proxy status codes and include a repeatable smoke test. --done
+* **Nuxt 4**: Plan a separate framework migration after this stable release is verified. --future

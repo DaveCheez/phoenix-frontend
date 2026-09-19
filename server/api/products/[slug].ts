@@ -1,17 +1,26 @@
-import { defineEventHandler, getRouterParam } from "h3";
+import { createError, defineEventHandler, getRouterParam } from "h3";
+
 import { djangoFetch } from "../../utils/django";
+import { cachePublicResponse, throwPublicProxyError } from "../../utils/publicProxy";
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, "slug");
 
   if (!slug) {
-    return { error: "Product slug is required" };
+    throw createError({
+      statusCode: 400,
+      statusMessage: "Product slug is required.",
+    });
   }
 
   try {
-    return await djangoFetch(`products/${encodeURIComponent(slug)}/`);
-  } catch (error) {
-    console.error("[Django product proxy error]", error);
-    return { error: "Failed to load product" };
+    const data = await djangoFetch(
+      event,
+      `products/${encodeURIComponent(slug)}/`,
+    );
+    cachePublicResponse(event, 30, 120);
+    return data;
+  } catch (error: any) {
+    throwPublicProxyError("product", error, "Product not found.");
   }
 });

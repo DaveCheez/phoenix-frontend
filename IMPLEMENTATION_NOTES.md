@@ -1,73 +1,49 @@
-# To-do implementation notes
+# Stable release changes
 
-This revision implements the non-payment items from the current Phoenix Vanz backlog.
+## Deployment/runtime fix
 
-## Backend changes
+- Upgraded the application from the old Nuxt 3.14 dependency line to Nuxt
+  3.21.11.
+- Removed unused Nuxt modules and conflicting test packages.
+- Added a multi-stage Dockerfile so `.output/server` and `.output/public` are
+  always deployed as one unit.
+- Removed the need for the public-directory copy/symlink workarounds.
+- Added a deployment smoke-test script.
 
-- Cart mutations are transaction-safe and return the fresh cart in the same response.
-- A database constraint prevents duplicate rows for the same product in one cart.
-- The cart migration merges any existing duplicate rows before adding that constraint.
-- Quantity `0` removes an item; valid stored quantities are `1` to `999`.
-- `GET /api/cart/`, `POST /api/cart/add/`, `PATCH /api/cart/update/`,
-  `DELETE /api/cart/remove/` and `DELETE /api/cart/clear/` now return consistent
-  response shapes.
-- `HomeSlide` is manageable in Django admin and exposed at `GET /api/slides/`.
-- Automated API tests were added for cart quantity behaviour and slide scheduling.
+## Central API configuration
 
-## Frontend changes
+- Every Nuxt server proxy now reads `NUXT_DJANGO_API_BASE` using request-aware
+  runtime configuration.
+- The old local development URL cannot silently override the production value.
+- Proxy failures return meaningful HTTP status codes instead of a false HTTP
+  200 response containing `{ "error": ... }`.
+- Public catalogue endpoints have conservative cache headers; cart responses
+  remain private and uncached.
 
-- Shared cart state now uses Nuxt `useState` rather than module-global Vue refs.
-- Cart creation and loading are single-flight; mutations are queued so older
-  responses cannot overwrite newer cart state.
-- Quantity controls, direct number entry, removal and line totals are available
-  on the cart page.
-- A global accessible toast component reports success and error feedback.
-- Homepage slides are loaded from Django, with the existing local images used as
-  a fallback when no active slides exist.
-- The Stripe browser key is read from
-  `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` and must begin with `pk_test_` or
-  `pk_live_`.
+## Cart work
 
-## Required environment variable
+- Cart IDs are validated and persisted through an HttpOnly cookie and browser
+  local storage.
+- Stale cart IDs are replaced transparently.
+- Mutation requests are serialised to avoid overlapping updates.
+- Older GET responses cannot overwrite a newer cart mutation.
+- Quantity increase, decrease, direct entry and removal are supported.
+- Updated cart payloads are applied immediately without an unnecessary second
+  request.
 
-For local frontend development:
+## Homepage and user experience
 
-```env
-NUXT_DJANGO_API_BASE=http://127.0.0.1:8000/api
-NUXT_PUBLIC_CHECKOUT_ENABLED=false
-NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_replace_me
-```
+- Homepage slides come from Django admin through `/api/slides`.
+- Three local fallback slides are compiled into the Nuxt client bundle rather
+  than depending on runtime filesystem paths.
+- Navigation and product-category cards load through SSR-safe `useFetch` calls.
+- Toast notifications report successful and failed cart actions.
+- Product and category pages now load data through Nuxt data fetching instead
+  of waiting for `onMounted`.
 
-For DigitalOcean, keep the existing backend URL, leave
-`NUXT_PUBLIC_CHECKOUT_ENABLED=false` until the order API is complete, and set
-the public Stripe variable only when testing checkout. A Stripe secret key must
-never be placed in the frontend.
+## Checkout
 
-## Local verification
-
-Backend:
-
-```bash
-python manage.py migrate
-python manage.py test cart store
-python manage.py runserver
-```
-
-Frontend:
-
-```bash
-npm install
-npm run dev
-```
-
-## Deployment
-
-Commit and push the backend first so the pre-deploy migration creates the cart
-constraints and `HomeSlide` table. After the backend deployment succeeds, push
-and deploy the frontend.
-
-Online checkout is still deliberately fail-closed because the repository does
-not yet contain an order model, server-side Stripe Checkout/PaymentIntent
-creation, or webhook handling. Product option selections are also not yet
-persisted on cart items, so option prices cannot safely be charged. These should
-be built as a separate payment milestone after the charging rules are confirmed.
+The frontend validates that a Stripe browser key starts with `pk_test_` or
+`pk_live_`, but online checkout remains disabled by default because the project
+still lacks a complete server-side order, PaymentIntent/Checkout Session and
+webhook implementation.

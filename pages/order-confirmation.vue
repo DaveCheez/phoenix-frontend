@@ -1,24 +1,36 @@
+<script setup>
+const route = useRoute();
+const reference = computed(() => String(route.query.reference || ""));
+</script>
+
 <template>
-  <div class="max-w-xl mx-auto p-6 text-center">
-    <h1 class="text-2xl font-bold mb-4">Thank you for your order!</h1>
-    <p class="text-gray-600 mb-4">
-      Your order has been successfully placed. We will be in touch soon.
-    </p>
+  <div class="mx-auto max-w-xl p-6 pt-28 text-center">
+    <template v-if="reference">
+      <h1 class="mb-4 text-2xl font-bold">Order received</h1>
+      <p class="mb-4 text-gray-600">
+        Your reference is <strong>{{ reference }}</strong>. Phoenix Vanz will be
+        in touch to confirm fitment, lead time and installation.
+      </p>
+    </template>
 
-    <div class="bg-gray-100 p-4 rounded text-left">
-      <p><strong>Name:</strong> {{ route.query.name }}</p>
-      <p><strong>Email:</strong> {{ route.query.email }}</p>
-      <p><strong>City:</strong> {{ route.query.city }}</p>
+    <template v-else>
+      <h1 class="mb-4 text-2xl font-bold">No confirmed online order</h1>
+      <p class="mb-4 text-gray-600">
+        Online checkout is not currently enabled. Please contact Phoenix Vanz
+        and we will confirm the correct product and fitting details.
+      </p>
+      <NuxtLink
+        to="/contact"
+        class="inline-flex rounded bg-gray-900 px-5 py-3 font-semibold text-white"
+      >
+        Contact Phoenix Vanz
+      </NuxtLink>
+    </template>
+
+    <div class="mt-6">
+      <NuxtLink to="/" class="text-blue-700 hover:underline">
+        Return to home
+      </NuxtLink>
     </div>
-
-    <NuxtLink to="/" class="mt-6 inline-block text-blue-600 hover:underline"
-      >Return to Home</NuxtLink
-    >
   </div>
 </template>
-
-<script setup>
-import { useRoute } from "vue-router";
-
-const route = useRoute();
-</script>

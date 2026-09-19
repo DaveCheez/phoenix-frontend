@@ -1,10 +1,12 @@
 <template>
-  <div class="min-h-screen flex flex-col pt-20">
+  <div class="flex min-h-screen flex-col pt-20">
     <Navbar />
     <main class="flex-grow">
       <slot />
     </main>
     <Footer />
-    <ToastContainer />
+    <ClientOnly>
+      <ToastContainer />
+    </ClientOnly>
   </div>
 </template>

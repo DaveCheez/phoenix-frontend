@@ -1,21 +1,30 @@
-import { ref, onMounted } from "vue";
 import { loadStripe } from "@stripe/stripe-js";
+import { onMounted, ref } from "vue";
 
-let stripePromise;
+let stripePromise = null;
 
 export const useStripe = () => {
   const stripe = ref(null);
+  const error = ref("");
   const config = useRuntimeConfig();
 
-  if (!stripePromise) {
-    stripePromise = loadStripe((config.public.stripePublishableKey || config.public.stripePk));
-  }
-
   onMounted(async () => {
-    stripe.value = await stripePromise;
+    const key = String(config.public.stripePublishableKey || "").trim();
+
+    if (!/^pk_(test|live)_/.test(key)) {
+      error.value =
+        "Stripe is not configured with a valid browser publishable key.";
+      return;
+    }
+
+    try {
+      stripePromise ||= loadStripe(key);
+      stripe.value = await stripePromise;
+    } catch (stripeError) {
+      console.error("Stripe initialisation failed:", stripeError);
+      error.value = "Stripe could not be initialised.";
+    }
   });
 
-  return {
-    stripe,
-  };
+  return { stripe, error };
 };

@@ -8,11 +8,6 @@ const CART_MAX_AGE = 60 * 60 * 24 * 30;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/**
- * Older frontend builds wrote cart_id through Nuxt useCookie, which JSON
- * serialises strings. H3 then sees a value such as `"uuid"`. Accept both the
- * old JSON-encoded form and the new plain UUID form during the transition.
- */
 export function normaliseCartId(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
 
@@ -21,7 +16,7 @@ export function normaliseCartId(value: unknown): string | null {
   try {
     candidate = decodeURIComponent(candidate);
   } catch {
-    // It may already be decoded by H3.
+    // H3 may already have decoded the cookie.
   }
 
   if (candidate.startsWith('"') && candidate.endsWith('"')) {
@@ -29,7 +24,7 @@ export function normaliseCartId(value: unknown): string | null {
       const parsed = JSON.parse(candidate);
       if (typeof parsed === "string") candidate = parsed;
     } catch {
-      // Invalid JSON is rejected by the UUID check below.
+      return null;
     }
   }
 
@@ -37,12 +32,7 @@ export function normaliseCartId(value: unknown): string | null {
 }
 
 export function readCartId(event: H3Event, fallback?: unknown): string | null {
-  // An explicit cart ID from the browser wins over a stale cookie. The ID is
-  // still UUID-validated before it is used.
-  return (
-    normaliseCartId(fallback) ||
-    normaliseCartId(getCookie(event, CART_COOKIE))
-  );
+  return normaliseCartId(fallback) || normaliseCartId(getCookie(event, CART_COOKIE));
 }
 
 export function writeCartId(event: H3Event, cartId: string): void {
@@ -64,14 +54,18 @@ export function clearCartId(event: H3Event): void {
 }
 
 export function isCartNotFoundError(error: any): boolean {
-  const status =
-    error?.statusCode || error?.response?.status || error?.status || 0;
+  const status = Number(
+    error?.statusCode || error?.response?.status || error?.status || 0,
+  );
   const data = error?.data || error?.response?._data || {};
   return status === 404 || data?.code === "CART_NOT_FOUND";
 }
 
 export async function createCart(event: H3Event): Promise<any> {
-  const data: any = await djangoFetch("cart/create/", { method: "POST" });
+  const data: any = await djangoFetch(event, "cart/create/", {
+    method: "POST",
+    body: {},
+  });
   const cartId = normaliseCartId(data?.cart_id || data?.cart?.id);
 
   if (!cartId) {
@@ -88,7 +82,6 @@ export async function ensureCartId(
 ): Promise<string> {
   const existing = readCartId(event, fallback);
   if (existing) {
-    // Rewrite old JSON-encoded/non-HttpOnly cookies in one canonical form.
     writeCartId(event, existing);
     return existing;
   }

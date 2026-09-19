@@ -1,82 +1,105 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { computed } from "vue";
 import { useRoute } from "vue-router";
+import logoUrl from "~/assets/images/logo.png";
 
 const route = useRoute();
-const slug = route.params.slug;
+const slug = computed(() => String(route.params.slug || ""));
 
-const category = ref(null);
-const products = ref([]);
-const error = ref(null);
-
-onMounted(async () => {
-  try {
-    const res = await $fetch(`/api/category/${slug}`);
-    if (res.error) throw new Error(res.error);
-
-    category.value = res;
-    products.value = res.products;
-  } catch (err) {
-    error.value = err.message;
-  }
+const {
+  data: category,
+  error,
+  status,
+  refresh,
+} = await useFetch(() => `/api/category/${encodeURIComponent(slug.value)}`, {
+  key: `category-${slug.value}`,
+  default: () => null,
 });
+
+const products = computed(() =>
+  Array.isArray(category.value?.products) ? category.value.products : [],
+);
+
+useHead(() => ({
+  title: category.value?.name || "Products",
+  meta: category.value?.description
+    ? [{ name: "description", content: category.value.description.slice(0, 155) }]
+    : [],
+}));
 </script>
 
 <template>
-  <section class="bg-gray-100 text-black">
-    <!-- ✅ Full-Width Category Header Image -->
+  <section class="min-h-screen bg-gray-100 text-black">
     <div
       v-if="category?.header_image"
-      class="w-full h-72 md:h-96 overflow-hidden"
+      class="h-72 w-full overflow-hidden md:h-96"
     >
       <img
         :src="category.header_image"
         :alt="category.name"
-        class="w-full h-full object-cover"
+        class="h-full w-full object-cover"
       />
     </div>
 
-    <!-- ✅ Category Content -->
     <div class="container mx-auto max-w-5xl px-6 py-12 md:py-20">
-      <h1 class="text-4xl font-bold text-center text-gray-800 mb-6">
-        {{ category?.name || "Loading..." }}
-      </h1>
-
-      <p v-if="category?.description" class="text-center text-gray-600 mb-10">
-        {{ category.description }}
-      </p>
-
-      <p v-if="error" class="text-red-500 text-center">{{ error }}</p>
-
-      <!-- Products Grid -->
-      <div v-if="products.length" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <NuxtLink
-          v-for="product in products"
-          :key="product.id"
-          :to="`/product/${product.slug}`"
-          class="block p-4 bg-white shadow rounded-lg transition-transform hover:scale-105"
-        >
-          <div
-            class="w-full h-48 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center"
-          >
-            <img
-              v-if="product.thumbnail"
-              :src="product.thumbnail"
-              :alt="product.name"
-              class="object-cover w-full h-full"
-            />
-            <span v-else class="text-gray-500">{{ product.name }}</span>
-          </div>
-
-          <h2 class="text-xl font-semibold mt-2">{{ product.name }}</h2>
-          <p class="text-gray-600">{{ product.description }}</p>
-          <p class="text-lg font-bold mt-2">£{{ product.price }}</p>
-        </NuxtLink>
+      <div v-if="status === 'pending'" class="py-16 text-center">
+        <Icon name="svg-spinners:ring-resize" class="mx-auto h-8 w-8" />
+        <p class="mt-3 text-gray-600">Loading products…</p>
       </div>
 
-      <p v-else-if="!error" class="text-center text-gray-500">
-        Loading products...
-      </p>
+      <div v-else-if="error || !category" class="py-16 text-center">
+        <h1 class="text-3xl font-bold">Category unavailable</h1>
+        <p class="mt-3 text-gray-600">
+          We could not load this product category.
+        </p>
+        <button
+          type="button"
+          class="mt-6 rounded bg-gray-900 px-5 py-3 text-white"
+          @click="refresh"
+        >
+          Try again
+        </button>
+      </div>
+
+      <template v-else>
+        <h1 class="mb-6 text-center text-4xl font-bold text-gray-800">
+          {{ category.name }}
+        </h1>
+
+        <p v-if="category.description" class="mb-10 text-center text-gray-600">
+          {{ category.description }}
+        </p>
+
+        <div v-if="products.length" class="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <NuxtLink
+            v-for="product in products"
+            :key="product.id"
+            :to="`/product/${product.slug}`"
+            class="block rounded-lg bg-white p-4 shadow transition-transform hover:scale-[1.01]"
+          >
+            <div
+              class="flex h-48 w-full items-center justify-center overflow-hidden rounded-lg bg-gray-100"
+            >
+              <img
+                :src="product.thumbnail || logoUrl"
+                :alt="product.name"
+                class="h-full w-full object-cover"
+                loading="lazy"
+              />
+            </div>
+
+            <h2 class="mt-3 text-xl font-semibold">{{ product.name }}</h2>
+            <p class="mt-1 line-clamp-3 text-gray-600">
+              {{ product.description }}
+            </p>
+            <p class="mt-3 text-lg font-bold">£{{ product.price }}</p>
+          </NuxtLink>
+        </div>
+
+        <p v-else class="text-center text-gray-500">
+          No products have been added to this category yet.
+        </p>
+      </template>
     </div>
   </section>
 </template>

@@ -136,7 +136,7 @@ const goToPayment = async () => {
 
 const loadStripe = async () => {
   const publishableKey = String(
-    config.public.stripePublishableKey || config.public.stripePk || "",
+    config.public.stripePublishableKey || "",
   ).trim();
 
   if (!publishableKey) {
