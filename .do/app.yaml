@@ -1,4 +1,4 @@
-name: phoenix-vanz-frontend
+name: phoenix-frontend
 region: lon
 alerts:
   - rule: DEPLOYMENT_FAILED
@@ -33,7 +33,7 @@ envs:
 services:
   - name: nuxt-web
     github:
-      repo: DaveCheez/phoenix-vanz-frontend
+      repo: DaveCheez/phoenix-frontend
       branch: master
       deploy_on_push: true
     source_dir: /
