@@ -2,15 +2,9 @@ name: Frontend tests
 
 on:
   push:
-    branches:
-      - master
-      - main
-      - develop
+    branches: [master, main, develop]
   pull_request:
-    branches:
-      - master
-      - main
-      - develop
+    branches: [master, main, develop]
 
 concurrency:
   group: frontend-tests-${{ github.workflow }}-${{ github.ref }}
@@ -19,27 +13,26 @@ concurrency:
 jobs:
   build-and-smoke-test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '22.x'
           cache: npm
-
       - name: Install dependencies
         run: npm ci
-
       - name: Build Nuxt application
         env:
           NODE_ENV: production
           NUXT_PUBLIC_CHECKOUT_ENABLED: 'false'
           NUXT_DJANGO_API_BASE: http://127.0.0.1:9999/api
         run: npm run build
-
+      - name: Start mock Django API
+        run: |
+          nohup node scripts/mock-django-api.mjs > /tmp/phoenix-mock-django.log 2>&1 &
+          echo $! > /tmp/phoenix-mock-django.pid
       - name: Start production server
         env:
           NODE_ENV: production
@@ -50,29 +43,26 @@ jobs:
         run: |
           nohup node .output/server/index.mjs > /tmp/phoenix-nuxt.log 2>&1 &
           echo $! > /tmp/phoenix-nuxt.pid
-
-      - name: Wait for Nuxt
+      - name: Wait for services
         run: |
           for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:3000/api/health > /tmp/health.json; then
-              cat /tmp/health.json
-              exit 0
-            fi
+            curl -fsS http://127.0.0.1:9999/api/health >/dev/null 2>&1 && curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1 && exit 0
             sleep 1
           done
-          cat /tmp/phoenix-nuxt.log
+          cat /tmp/phoenix-mock-django.log || true
+          cat /tmp/phoenix-nuxt.log || true
           exit 1
-
       - name: Smoke test local application
         run: node scripts/ci-smoke-test.mjs http://127.0.0.1:3000
-
-      - name: Show Nuxt log on failure
+      - name: Show logs on failure
         if: failure()
-        run: cat /tmp/phoenix-nuxt.log
-
-      - name: Stop Nuxt
+        run: |
+          echo '--- Nuxt log ---'
+          cat /tmp/phoenix-nuxt.log || true
+          echo '--- Mock Django log ---'
+          cat /tmp/phoenix-mock-django.log || true
+      - name: Stop services
         if: always()
         run: |
-          if [ -f /tmp/phoenix-nuxt.pid ]; then
-            kill "$(cat /tmp/phoenix-nuxt.pid)" || true
-          fi
+          kill $(cat /tmp/phoenix-nuxt.pid) 2>/dev/null || true
+          kill $(cat /tmp/phoenix-mock-django.pid) 2>/dev/null || true
