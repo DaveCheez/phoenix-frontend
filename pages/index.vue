@@ -1,39 +1,54 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import beachImage from "~/assets/images/home/crafter-beach.jpg";
-import bikeImage from "~/assets/images/home/crafter-bike.jpg";
-import sidebarImage from "~/assets/images/home/sidebar.jpg";
 import { asArray } from "~/utils/apiData";
 
-const fallbackSlides = [
-  {
-    id: "fallback-beach",
-    title: "Phoenix Vanz",
-    subtitle: "Bespoke fabrication for your van",
-    image: beachImage,
-    mobile_image: null,
-    button_text: "Explore our products",
-    button_url: "#products",
-  },
-  {
-    id: "fallback-bike",
-    title: "Built for work and adventure",
-    subtitle: "Campervan accessories designed and fitted in Lancashire",
-    image: bikeImage,
-    mobile_image: null,
-    button_text: "Shop by product",
-    button_url: "#products",
-  },
-  {
-    id: "fallback-sidebar",
-    title: "Made around your van",
-    subtitle: "Roof racks, ladders, carriers and bespoke fabrication",
-    image: sidebarImage,
-    mobile_image: null,
-    button_text: "Contact Phoenix Vanz",
-    button_url: "/contact",
-  },
-];
+
+const fallbackSlides = ref([]);
+let fallbackSlidesPromise = null;
+
+const loadFallbackSlides = async () => {
+  if (fallbackSlides.value.length) return;
+
+  if (!fallbackSlidesPromise) {
+    fallbackSlidesPromise = Promise.all([
+      import("~/assets/images/home/crafter-beach.jpg"),
+      import("~/assets/images/home/crafter-bike.jpg"),
+      import("~/assets/images/home/sidebar.jpg"),
+    ]).then(([beach, bike, sidebar]) => [
+      {
+        id: "fallback-beach",
+        title: "Phoenix Vanz",
+        subtitle: "Bespoke fabrication for your van",
+        image: beach.default,
+        mobile_image: null,
+        button_text: "Explore our products",
+        button_url: "#products",
+      },
+      {
+        id: "fallback-bike",
+        title: "Built for work and adventure",
+        subtitle:
+          "Campervan accessories designed and fitted in Lancashire",
+        image: bike.default,
+        mobile_image: null,
+        button_text: "Shop by product",
+        button_url: "#products",
+      },
+      {
+        id: "fallback-sidebar",
+        title: "Made around your van",
+        subtitle:
+          "Roof racks, ladders, carriers and bespoke fabrication",
+        image: sidebar.default,
+        mobile_image: null,
+        button_text: "Contact Phoenix Vanz",
+        button_url: "/contact",
+      },
+    ]);
+  }
+
+  fallbackSlides.value = await fallbackSlidesPromise;
+};
 
 const { data: slidePayload } = await useFetch("/api/slides", {
   key: "home-slides",
@@ -43,9 +58,17 @@ const { data: slidePayload } = await useFetch("/api/slides", {
 const remoteSlides = computed(() =>
   asArray(slidePayload.value, ["slides"]).filter((slide) => slide?.image),
 );
+
+if (!remoteSlides.value.length) {
+  await loadFallbackSlides();
+}
+
 const slides = computed(() =>
-  remoteSlides.value.length ? remoteSlides.value : fallbackSlides,
+  remoteSlides.value.length
+    ? remoteSlides.value
+    : fallbackSlides.value,
 );
+
 
 const currentIndex = ref(0);
 const currentSlide = computed(
