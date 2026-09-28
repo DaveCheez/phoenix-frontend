@@ -1,39 +1,54 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import beachImage from "~/assets/images/home/crafter-beach.jpg";
-import bikeImage from "~/assets/images/home/crafter-bike.jpg";
-import sidebarImage from "~/assets/images/home/sidebar.jpg";
 import { asArray } from "~/utils/apiData";
 
-const fallbackSlides = [
-  {
-    id: "fallback-beach",
-    title: "Phoenix Vanz",
-    subtitle: "Bespoke fabrication for your van",
-    image: beachImage,
-    mobile_image: null,
-    button_text: "Explore our products",
-    button_url: "#products",
-  },
-  {
-    id: "fallback-bike",
-    title: "Built for work and adventure",
-    subtitle: "Campervan accessories designed and fitted in Lancashire",
-    image: bikeImage,
-    mobile_image: null,
-    button_text: "Shop by product",
-    button_url: "#products",
-  },
-  {
-    id: "fallback-sidebar",
-    title: "Made around your van",
-    subtitle: "Roof racks, ladders, carriers and bespoke fabrication",
-    image: sidebarImage,
-    mobile_image: null,
-    button_text: "Contact Phoenix Vanz",
-    button_url: "/contact",
-  },
-];
+
+const fallbackSlides = ref([]);
+let fallbackSlidesPromise = null;
+
+const loadFallbackSlides = async () => {
+  if (fallbackSlides.value.length) return;
+
+  if (!fallbackSlidesPromise) {
+    fallbackSlidesPromise = Promise.all([
+      import("~/assets/images/home/crafter-beach.jpg"),
+      import("~/assets/images/home/crafter-bike.jpg"),
+      import("~/assets/images/home/sidebar.jpg"),
+    ]).then(([beach, bike, sidebar]) => [
+      {
+        id: "fallback-beach",
+        title: "Phoenix Vanz",
+        subtitle: "Bespoke fabrication for your van",
+        image: beach.default,
+        mobile_image: null,
+        button_text: "Explore our products",
+        button_url: "#products",
+      },
+      {
+        id: "fallback-bike",
+        title: "Built for work and adventure",
+        subtitle:
+          "Campervan accessories designed and fitted in Lancashire",
+        image: bike.default,
+        mobile_image: null,
+        button_text: "Shop by product",
+        button_url: "#products",
+      },
+      {
+        id: "fallback-sidebar",
+        title: "Made around your van",
+        subtitle:
+          "Roof racks, ladders, carriers and bespoke fabrication",
+        image: sidebar.default,
+        mobile_image: null,
+        button_text: "Contact Phoenix Vanz",
+        button_url: "/contact",
+      },
+    ]);
+  }
+
+  fallbackSlides.value = await fallbackSlidesPromise;
+};
 
 const { data: slidePayload } = await useFetch("/api/slides", {
   key: "home-slides",
@@ -43,14 +58,36 @@ const { data: slidePayload } = await useFetch("/api/slides", {
 const remoteSlides = computed(() =>
   asArray(slidePayload.value, ["slides"]).filter((slide) => slide?.image),
 );
+
+if (!remoteSlides.value.length) {
+  await loadFallbackSlides();
+}
+
 const slides = computed(() =>
-  remoteSlides.value.length ? remoteSlides.value : fallbackSlides,
+  remoteSlides.value.length
+    ? remoteSlides.value
+    : fallbackSlides.value,
 );
 
+
 const currentIndex = ref(0);
-const currentSlide = computed(
-  () => slides.value[currentIndex.value] || slides.value[0],
-);
+
+const currentSlide = computed(() => {
+  const availableSlides = Array.isArray(slides.value)
+    ? slides.value
+    : [];
+
+  if (!availableSlides.length) {
+    return null;
+  }
+
+  return (
+    availableSlides[currentIndex.value]
+    ?? availableSlides[0]
+    ?? null
+  );
+});
+
 let intervalId = null;
 
 const stopAutoplay = () => {
@@ -105,29 +142,42 @@ onUnmounted(stopAutoplay);
     @mouseleave="startAutoplay"
     @focusin="stopAutoplay"
     @focusout="startAutoplay"
-  >
-    <div
-      v-for="(slide, index) in slides"
-      :key="slide.id || slide.image || index"
-      class="absolute inset-0 transition-opacity duration-1000"
-      :class="currentIndex === index ? 'opacity-100' : 'pointer-events-none opacity-0'"
-      :aria-hidden="currentIndex !== index"
-    >
-      <picture class="block h-full w-full">
-        <source
-          v-if="slide.mobile_image"
-          media="(max-width: 767px)"
-          :srcset="slide.mobile_image"
-        />
-        <img
-          :src="slide.image"
-          :alt="slide.title || 'Phoenix Vanz'"
-          class="h-full w-full object-cover"
-          :loading="index === 0 ? 'eager' : 'lazy'"
-        />
-      </picture>
-    </div>
 
+  > <Transition name="hero-image">
+      <div
+        v-if="currentSlide?.image"
+        :key="
+          currentSlide?.id
+          || currentSlide?.image
+          || currentIndex
+        "
+        class="absolute inset-0"
+      >
+        <picture class="block h-full w-full">
+          <source
+            v-if="currentSlide?.mobile_image"
+            media="(max-width: 767px)"
+            :srcset="currentSlide?.mobile_image"
+          />
+
+          <img
+            :src="currentSlide?.image"
+            :alt="currentSlide?.title || 'Phoenix Vanz'"
+            class="h-full w-full object-cover"
+            loading="eager"
+            :fetchpriority="
+              currentIndex === 0 ? 'high' : 'auto'
+            "
+            decoding="async"
+          />
+        </picture>
+      </div>
+    </Transition>
+
+    <div
+      class="absolute inset-0 bg-black/50"
+      aria-hidden="true"
+    ></div>
     <div class="absolute inset-0 bg-black/50" aria-hidden="true"></div>
 
     <div
@@ -233,5 +283,14 @@ onUnmounted(stopAutoplay);
 .hero-copy-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+.hero-image-enter-active,
+.hero-image-leave-active {
+  transition: opacity 500ms ease;
+}
+
+.hero-image-enter-from,
+.hero-image-leave-to {
+  opacity: 0;
 }
 </style>
