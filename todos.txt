@@ -1,27 +1,151 @@
-# Phoenix Vanz To-Do List
+# Phoenix Vanz Website To-Do List
 
-## High Priority Bugs
-* **Cart**: Re-implement backend cart API views (create, add, get, remove). --done
-* **Cart**: Fix bug where adding a product multiple times creates separate cart items instead of increasing quantity. --done
-* **Stripe**: Correct public-key runtime configuration and reject secret/malformed keys with a clear message. --done
-* **Stripe / Orders**: Build the real server-side order and payment flow before enabling live online checkout. --pending business rules
-* **Cart Options**: Persist selected product options and their price adjustments before taking online payments. --pending data-model decision
+Last reviewed: 28 September 2026
+Primary frontend repository: DaveCheez/phoenix-frontend
 
-## Medium Priority Features & Improvements
-* **Cart**: Implement update quantity functionality in the cart. --done
-* **Slideshow**: Update the homepage slideshow with dynamic Django-admin content and safe static fallbacks. --done
-* **UX**: Add global toast notifications for cart feedback and errors. --done
-* **Refactor**: Centralize Django API URLs using Nuxt runtime config and Nitro proxy routes. --done
-* **Refactor**: Improve cart state management to prevent duplicate creation, overlapping mutations and stale responses. --done
+Status legend:
+- [ ] To do
+- [~] In progress or partially implemented
+- [x] Completed and deployed
+- [D] Deferred — agreed, but not ready to build
 
-## Follow-up Testing
-* Run Django migrations against the Neon development database.
-* Add at least one Home Slide in Django admin and verify desktop/mobile images.
-* Test cart add, increment, decrement, direct quantity entry, remove and stale-cookie recovery.
-* Confirm `NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` uses a `pk_test_...` key in non-production testing.
+## P0 — Revenue, Enquiries and Checkout
 
-## Deployment Stabilisation
-* **Nuxt runtime**: Upgrade away from the broken 3.14 dependency set. --done
-* **DigitalOcean**: Deploy the complete Nuxt output with a Dockerfile instead of buildpack copy/symlink workarounds. --done
-* **API diagnostics**: Return real proxy status codes and include a repeatable smoke test. --done
-* **Nuxt 4**: Plan a separate framework migration after this stable release is verified. --future
+### Contact form and enquiry delivery
+- [ ] **Contact form: deliver every genuine enquiry to Phoenix Vanz by email.**
+  - Submit to a first-party Nuxt/Django endpoint; do not rely on `mailto:`.
+  - Save the enquiry in Django before attempting email delivery so enquiries are not lost when the mail provider is unavailable.
+  - Send from a verified Phoenix Vanz/domain address and set `Reply-To` to the customer's email address.
+  - Configure the recipient through an environment variable such as `CONTACT_TO_EMAIL`; do not hard-code the personal address in the frontend.
+  - Email subject should clearly identify a website enquiry and the customer's name/product where available.
+  - Include: customer name, email, telephone, van make/model/year/length, product of interest, message, source page URL, submission time and enquiry reference.
+  - Add server-side validation, honeypot/rate limiting, sanitisation and useful error logging.
+  - Show clear sending, success and failure states in the frontend; preserve entered values after a failure.
+  - Send a customer acknowledgement only after the Phoenix Vanz delivery succeeds.
+  - Test real delivery to the configured Phoenix Vanz inbox in production, including `Reply-To`; a HTTP 200 response alone is not acceptance.
+
+### Deposit checkout and payment
+- [ ] **Stripe: finish and production-test the 1/3 deposit checkout.**
+  - Customer pays one third at checkout; remaining balance is due on completion.
+  - Calculate prices and the deposit on the server, not in the browser.
+  - Correct Stripe environment variables and remove the previous invalid-key failure.
+  - Create a durable order before payment and store deposit amount, outstanding balance and payment status.
+  - Verify webhooks, signatures, idempotency and duplicate-payment protection.
+  - Confirm the order-confirmation and balance-payment pages work from a real order reference.
+  - Send Phoenix Vanz and the customer a payment/order email after a verified webhook event.
+  - Make the workshop fitting, lead-time and balance terms clear before payment.
+
+### Order and enquiry reliability
+- [ ] Add Django-admin visibility for contact enquiries, failed email attempts and order/payment status.
+- [ ] Add retry handling for failed transactional emails without creating duplicate emails or orders.
+- [ ] Add a documented manual fallback process for enquiries or orders received while an external provider is unavailable.
+
+## P0 — Current Production Bugs
+
+### Reviews errors while Elfsight remains live
+- [ ] **Stop the unused/failing `/api/google-reviews` request from running twice and returning 504.**
+  - Keep the current Elfsight widget temporarily.
+  - Remove or disable the dead first-party fetch until the Django reviews replacement is deliberately started.
+  - Confirm the homepage console has no Google-reviews 504 or `FetchError` messages.
+
+### Page metadata
+- [ ] Add a unique, non-empty `<title>` to the homepage, About, Contact, Cart, Services, Checkout, Order Confirmation and Balance pages.
+- [ ] Add canonical URLs for all indexable routes.
+- [ ] Add route-specific meta descriptions, Open Graph tags and social sharing images.
+- [ ] Verify product/category metadata does not fall back to generic copy where specific copy exists.
+
+## P1 — Frontend Bugs, Accessibility and UX
+
+### Contact and forms
+- [ ] Make all contact fields accessible, labelled and keyboard friendly.
+- [ ] Add inline validation that matches the server rules without replacing server-side validation.
+- [ ] Add privacy wording and consent where customer details are collected.
+- [ ] Pre-fill product/source information when a user opens Contact from a product page.
+
+### Accessibility
+- [ ] Increase carousel dot hit areas to at least 44 × 44 CSS pixels while keeping the visible dot small.
+- [ ] Give the Phoenix Vanz logo/home link an accessible name and serve an appropriately sized logo asset.
+- [ ] Add a meaningful title to the Elfsight iframe while it remains in use, where technically possible.
+- [ ] Verify visible focus states, keyboard navigation and reduced-motion behaviour across navigation, carousel, cart and checkout.
+- [ ] Run a manual keyboard and screen-reader pass after automated accessibility fixes.
+
+### Error and loading states
+- [ ] Ensure Django/API outages show useful, non-destructive fallback states rather than blank sections or generic 500 pages.
+- [ ] Prevent repeated proxy requests and noisy duplicate error logging when an upstream endpoint is unavailable.
+- [ ] Add consistent loading, empty and retry states for categories, products, cart, checkout and reviews.
+
+### Local development
+- [ ] Add a repeatable local seed/fixture command so expected categories and product slugs exist in SQLite.
+- [ ] Add `.env.example` files for frontend and backend with variable names only, never secrets.
+- [ ] Resolve or document the Nuxt `#app-manifest` development cache error; add a safe cache-clean development script if required.
+- [ ] Move unsupported `postcss.config.js` settings into `nuxt.config.ts` and remove the Nuxt warning.
+
+## P1 — Testing and Release Safety
+
+- [ ] Add a real frontend test script rather than relying only on `npm run build`.
+- [ ] Add Vitest tests for composables, cart calculations, form validation and API response normalisation.
+- [ ] Add Playwright end-to-end tests for:
+  - contact enquiry submission and failure recovery;
+  - add/update/remove cart items;
+  - 1/3 deposit checkout and order confirmation using Stripe test mode;
+  - balance-payment route;
+  - mobile navigation and homepage carousel;
+  - backend-unavailable fallback behaviour.
+- [ ] Keep GitHub CI as the merge gate and make deployment depend on successful CI.
+- [ ] Add a post-deployment smoke test for homepage, contact, cart, checkout, health and key API endpoints.
+
+## P2 — Performance and Media Follow-up
+
+- [ ] Apply the tested Django WebP optimiser to `ProductImage` uploads and create a controlled backfill command for existing product images.
+- [ ] Add responsive category/product image sizes (`srcset`/`sizes`) so card layouts do not receive images much larger than their rendered dimensions.
+- [ ] Increase cache lifetimes for immutable, uniquely named DigitalOcean Spaces assets.
+- [ ] Correct the MIME metadata of older HomeSlide WebP objects that still return `application/octet-stream`.
+- [ ] Investigate root-document/SSR time-to-first-byte and cache only safe public data.
+- [ ] Optimise the 1500 × 1500 navigation logo for its approximately 40 × 40 display size.
+
+## P2 — Reviews Replacement — Deferred
+
+- [D] **Build a first-party Django-managed Google reviews system that matches or exceeds the Elfsight widget. Do not start this implementation yet.**
+  - Keep this item in the backlog until Phoenix Vanz is ready to begin the separate backend and frontend work.
+  - Planned backend scope: Google Business Profile sync, durable Django storage, admin controls, sync audit history, cached public API and failure-safe stale data.
+  - Planned frontend scope: premium Phoenix-branded summary, responsive carousel/grid, reviewer photos, dates, stars, read-more, owner replies, media, swipe/drag, keyboard controls, write-review and view-all links.
+  - Keep Elfsight until the replacement is complete, populated with real data and visually approved.
+  - Remove Elfsight, its third-party cookies/scripts and the obsolete review proxy only during the final controlled switchover.
+
+## P2 — Product and Customer Experience
+
+- [ ] Review the full product enquiry journey from product page to contact/order so the selected product and vehicle details carry through.
+- [ ] Add clear workshop-only fitting, four-week lead-time and vehicle-specific hinge requirements to the relevant product/checkout experience.
+- [ ] Confirm all prices shown on product, cart, checkout, deposit and balance pages are consistent with Django.
+- [ ] Add a dedicated order-status/help route with Phoenix Vanz contact details and the customer's order reference.
+
+## Completed and Deployed
+
+- [x] Backend cart API views restored and live.
+- [x] Repeated add-to-cart actions increase quantity rather than creating duplicate cart lines.
+- [x] Cart quantity update functionality implemented.
+- [x] Toast notifications added for user feedback.
+- [x] API base URLs centralised through Nuxt runtime configuration.
+- [x] Cart state/race handling improved.
+- [x] Django-admin-managed homepage slideshow implemented with desktop and mobile images.
+- [x] New HomeSlide uploads automatically resized and converted to WebP.
+- [x] New CategoryImage uploads automatically resized and converted to WebP.
+- [x] Existing category images backfilled to WebP in production.
+- [x] Homepage fallback JPEGs load only when Django slides are unavailable.
+- [x] Only the active homepage slide is loaded initially; inactive slides are deferred.
+- [x] First hero image uses eager loading, `fetchpriority="high"` and async decoding.
+- [x] Production domains moved to the current frontend and backend applications.
+- [x] GitHub CI and the small-branch/pull-request deployment process are working.
+- [x] Latest homepage performance baseline: approximately 95 mobile and 100 desktop, with the initial payload reduced to approximately 1.6 MB.
+
+## Working Rules
+
+1. Tag or record the current known-good commit before risky work.
+2. Use one feature branch per change.
+3. Generate changes against the exact current commit.
+4. Apply small, reviewable patches.
+5. Never replace existing workflows wholesale.
+6. Run available local checks and GitHub CI.
+7. Merge through a pull request.
+8. Deploy only after CI passes.
+9. Update this file in the same pull request whenever a task changes status.
