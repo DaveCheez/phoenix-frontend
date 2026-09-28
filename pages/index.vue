@@ -71,9 +71,23 @@ const slides = computed(() =>
 
 
 const currentIndex = ref(0);
-const currentSlide = computed(
-  () => slides.value[currentIndex.value] || slides.value[0],
-);
+
+const currentSlide = computed(() => {
+  const availableSlides = Array.isArray(slides.value)
+    ? slides.value
+    : [];
+
+  if (!availableSlides.length) {
+    return null;
+  }
+
+  return (
+    availableSlides[currentIndex.value]
+    ?? availableSlides[0]
+    ?? null
+  );
+});
+
 let intervalId = null;
 
 const stopAutoplay = () => {
@@ -128,29 +142,42 @@ onUnmounted(stopAutoplay);
     @mouseleave="startAutoplay"
     @focusin="stopAutoplay"
     @focusout="startAutoplay"
-  >
-    <div
-      v-for="(slide, index) in slides"
-      :key="slide.id || slide.image || index"
-      class="absolute inset-0 transition-opacity duration-1000"
-      :class="currentIndex === index ? 'opacity-100' : 'pointer-events-none opacity-0'"
-      :aria-hidden="currentIndex !== index"
-    >
-      <picture class="block h-full w-full">
-        <source
-          v-if="slide.mobile_image"
-          media="(max-width: 767px)"
-          :srcset="slide.mobile_image"
-        />
-        <img
-          :src="slide.image"
-          :alt="slide.title || 'Phoenix Vanz'"
-          class="h-full w-full object-cover"
-          :loading="index === 0 ? 'eager' : 'lazy'"
-        />
-      </picture>
-    </div>
 
+  > <Transition name="hero-image">
+      <div
+        v-if="currentSlide?.image"
+        :key="
+          currentSlide?.id
+          || currentSlide?.image
+          || currentIndex
+        "
+        class="absolute inset-0"
+      >
+        <picture class="block h-full w-full">
+          <source
+            v-if="currentSlide?.mobile_image"
+            media="(max-width: 767px)"
+            :srcset="currentSlide?.mobile_image"
+          />
+
+          <img
+            :src="currentSlide?.image"
+            :alt="currentSlide?.title || 'Phoenix Vanz'"
+            class="h-full w-full object-cover"
+            loading="eager"
+            :fetchpriority="
+              currentIndex === 0 ? 'high' : 'auto'
+            "
+            decoding="async"
+          />
+        </picture>
+      </div>
+    </Transition>
+
+    <div
+      class="absolute inset-0 bg-black/50"
+      aria-hidden="true"
+    ></div>
     <div class="absolute inset-0 bg-black/50" aria-hidden="true"></div>
 
     <div
@@ -256,5 +283,14 @@ onUnmounted(stopAutoplay);
 .hero-copy-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+.hero-image-enter-active,
+.hero-image-leave-active {
+  transition: opacity 500ms ease;
+}
+
+.hero-image-enter-from,
+.hero-image-leave-to {
+  opacity: 0;
 }
 </style>
