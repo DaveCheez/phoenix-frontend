@@ -2,6 +2,29 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { asArray } from "~/utils/apiData";
 
+const config = useRuntimeConfig();
+const siteRoot = `${String(config.public.siteUrl || "").replace(/\/+$/, "")}/`;
+const pageTitle = "Campervan roof racks and ladders";
+const fullTitle = `${pageTitle} | Phoenix Vanz`;
+const pageDescription =
+  "Bespoke campervan roof racks, ladders, carriers and fabrication, designed and fitted by Phoenix Vanz in Lancashire.";
+
+useHead({
+  title: pageTitle,
+  titleTemplate: (titleChunk) =>
+    titleChunk ? `${titleChunk} | Phoenix Vanz` : "Phoenix Vanz",
+  meta: [
+    { name: "description", content: pageDescription },
+    { property: "og:type", content: "website" },
+    { property: "og:title", content: fullTitle },
+    { property: "og:description", content: pageDescription },
+    { property: "og:url", content: siteRoot },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: fullTitle },
+    { name: "twitter:description", content: pageDescription },
+  ],
+  link: [{ rel: "canonical", href: siteRoot }],
+});
 
 const fallbackSlides = ref([]);
 let fallbackSlidesPromise = null;
@@ -71,6 +94,11 @@ const slides = computed(() =>
 
 
 const currentIndex = ref(0);
+const prefersReducedMotion = ref(false);
+const isUserPaused = ref(false);
+const isHoverPaused = ref(false);
+const isFocusPaused = ref(false);
+let motionPreference = null;
 
 const currentSlide = computed(() => {
   const availableSlides = Array.isArray(slides.value)
@@ -98,7 +126,15 @@ const stopAutoplay = () => {
 const startAutoplay = () => {
   if (!import.meta.client) return;
   stopAutoplay();
-  if (slides.value.length < 2) return;
+  if (
+    slides.value.length < 2
+    || prefersReducedMotion.value
+    || isUserPaused.value
+    || isHoverPaused.value
+    || isFocusPaused.value
+  ) {
+    return;
+  }
 
   intervalId = window.setInterval(() => {
     currentIndex.value = (currentIndex.value + 1) % slides.value.length;
@@ -121,6 +157,47 @@ const nextSlide = () => {
   startAutoplay();
 };
 
+const pauseForHover = () => {
+  isHoverPaused.value = true;
+  stopAutoplay();
+};
+
+const resumeAfterHover = () => {
+  isHoverPaused.value = false;
+  startAutoplay();
+};
+
+const pauseForFocus = () => {
+  isFocusPaused.value = true;
+  stopAutoplay();
+};
+
+const handleFocusOut = (event) => {
+  if (event.currentTarget?.contains(event.relatedTarget)) return;
+  isFocusPaused.value = false;
+  startAutoplay();
+};
+
+const toggleAutoplay = () => {
+  if (prefersReducedMotion.value) return;
+
+  isUserPaused.value = !isUserPaused.value;
+  if (isUserPaused.value) {
+    stopAutoplay();
+  } else {
+    startAutoplay();
+  }
+};
+
+const updateMotionPreference = (event) => {
+  prefersReducedMotion.value = event.matches;
+  if (event.matches) {
+    stopAutoplay();
+  } else if (!isUserPaused.value) {
+    startAutoplay();
+  }
+};
+
 watch(
   () => slides.value.length,
   () => {
@@ -129,8 +206,17 @@ watch(
   },
 );
 
-onMounted(startAutoplay);
-onUnmounted(stopAutoplay);
+onMounted(() => {
+  motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+  prefersReducedMotion.value = motionPreference.matches;
+  motionPreference.addEventListener("change", updateMotionPreference);
+  startAutoplay();
+});
+
+onUnmounted(() => {
+  stopAutoplay();
+  motionPreference?.removeEventListener("change", updateMotionPreference);
+});
 </script>
 
 <template>
@@ -138,12 +224,15 @@ onUnmounted(stopAutoplay);
     class="relative flex min-h-[calc(100vh-5rem)] items-center justify-center overflow-hidden bg-black"
     aria-roledescription="carousel"
     aria-label="Phoenix Vanz highlights"
-    @mouseenter="stopAutoplay"
-    @mouseleave="startAutoplay"
-    @focusin="stopAutoplay"
-    @focusout="startAutoplay"
+    @mouseenter="pauseForHover"
+    @mouseleave="resumeAfterHover"
+    @focusin="pauseForFocus"
+    @focusout="handleFocusOut"
 
-  > <Transition name="hero-image">
+  >
+    <h1 class="sr-only">Bespoke campervan roof racks and ladders</h1>
+
+    <Transition name="hero-image">
       <div
         v-if="currentSlide?.image"
         :key="
@@ -162,7 +251,7 @@ onUnmounted(stopAutoplay);
 
           <img
             :src="currentSlide?.image"
-            :alt="currentSlide?.title || 'Phoenix Vanz'"
+            alt=""
             class="h-full w-full object-cover"
             loading="eager"
             :fetchpriority="
@@ -186,11 +275,11 @@ onUnmounted(stopAutoplay);
     >
       <Transition name="hero-copy" mode="out-in">
         <div :key="currentSlide.id || currentIndex">
-          <h1
+          <p
             class="text-4xl font-extrabold drop-shadow-lg sm:text-6xl lg:text-7xl"
           >
             {{ currentSlide.title || "Phoenix Vanz" }}
-          </h1>
+          </p>
           <p
             v-if="currentSlide.subtitle"
             class="mx-auto mt-5 max-w-3xl text-lg drop-shadow-lg sm:text-2xl"
@@ -234,18 +323,55 @@ onUnmounted(stopAutoplay);
         <Icon name="heroicons:chevron-right" class="h-6 w-6" />
       </button>
 
-      <div class="absolute bottom-6 z-[2] flex gap-2" role="tablist" aria-label="Choose slide">
+      <div
+        class="absolute bottom-3 z-[2] flex max-w-[calc(100%-7rem)] items-center gap-1 overflow-x-auto sm:bottom-6"
+      >
+        <div class="flex items-center" role="group" aria-label="Choose slide">
+          <button
+            v-for="(_slide, index) in slides"
+            :key="`dot-${index}`"
+            type="button"
+            class="flex h-11 w-11 flex-none items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-white"
+            :aria-label="`Show slide ${index + 1} of ${slides.length}`"
+            :aria-current="currentIndex === index ? 'true' : undefined"
+            @click="goToSlide(index)"
+          >
+            <span
+              class="h-2.5 rounded-full transition-all"
+              :class="
+                currentIndex === index
+                  ? 'w-8 bg-white'
+                  : 'w-2.5 bg-white/60 hover:bg-white/80'
+              "
+              aria-hidden="true"
+            ></span>
+          </button>
+        </div>
+
         <button
-          v-for="(_slide, index) in slides"
-          :key="`dot-${index}`"
           type="button"
-          class="h-2.5 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-white"
-          :class="currentIndex === index ? 'w-8 bg-white' : 'w-2.5 bg-white/60 hover:bg-white/80'"
-          :aria-label="`Show slide ${index + 1}`"
-          :aria-selected="currentIndex === index"
-          role="tab"
-          @click="goToSlide(index)"
-        ></button>
+          class="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-white disabled:cursor-not-allowed disabled:opacity-70"
+          :aria-label="
+            prefersReducedMotion
+              ? 'Autoplay disabled by reduced-motion preference'
+              : isUserPaused
+                ? 'Play slideshow'
+                : 'Pause slideshow'
+          "
+          :aria-pressed="isUserPaused || prefersReducedMotion"
+          :disabled="prefersReducedMotion"
+          @click="toggleAutoplay"
+        >
+          <Icon
+            :name="
+              isUserPaused || prefersReducedMotion
+                ? 'heroicons:play'
+                : 'heroicons:pause'
+            "
+            class="h-5 w-5"
+            aria-hidden="true"
+          />
+        </button>
       </div>
     </template>
   </section>
@@ -292,5 +418,14 @@ onUnmounted(stopAutoplay);
 .hero-image-enter-from,
 .hero-image-leave-to {
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-copy-enter-active,
+  .hero-copy-leave-active,
+  .hero-image-enter-active,
+  .hero-image-leave-active {
+    transition: none;
+  }
 }
 </style>

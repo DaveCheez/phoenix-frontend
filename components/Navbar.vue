@@ -1,14 +1,34 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import logoUrl from "~/assets/images/logo.png";
 import { asArray } from "~/utils/apiData";
 
+const route = useRoute();
 const isOpen = ref(false);
 const isProductDropdownOpen = ref(false);
 const isProductMobileOpen = ref(false);
 const productCloseTimeout = ref(null);
+const mobileMenuToggle = ref(null);
+const mobileFirstLink = ref(null);
 
 const { cartItemCount, loadCart } = useCart();
+const cartAccessibleLabel = computed(() => {
+  const count = Number(cartItemCount.value || 0);
+  return `Shopping cart, ${count} ${count === 1 ? "item" : "items"}`;
+});
+const shopAriaCurrent = computed(() => {
+  if (route.path === "/shop") return "page";
+  if (
+    route.path.startsWith("/shop/")
+    || route.path.startsWith("/product/")
+  ) {
+    return "location";
+  }
+  return undefined;
+});
+
+const currentPage = (path) =>
+  route.path === path ? "page" : undefined;
 
 const {
   data: categoryPayload,
@@ -43,6 +63,32 @@ const cancelCloseTimeout = () => {
   clearTimeout(productCloseTimeout.value);
 };
 
+const openMobileMenu = async () => {
+  isOpen.value = true;
+  await nextTick();
+  mobileFirstLink.value?.$el?.focus?.();
+};
+
+const closeMobileMenu = ({ returnFocus = false } = {}) => {
+  isOpen.value = false;
+  isProductMobileOpen.value = false;
+  if (returnFocus) {
+    nextTick(() => mobileMenuToggle.value?.focus?.());
+  }
+};
+
+const toggleMobileMenu = () => {
+  if (isOpen.value) {
+    closeMobileMenu();
+  } else {
+    openMobileMenu();
+  }
+};
+
+const handleMobileEscape = () => {
+  closeMobileMenu({ returnFocus: true });
+};
+
 watch(isOpen, (value) => {
   if (!import.meta.client) return;
   document.body.style.overflow = value ? "hidden" : "";
@@ -64,35 +110,37 @@ onBeforeUnmount(() => {
         to="/"
         class="flex items-center space-x-2 text-2xl font-bold text-white"
         aria-label="Phoenix Vanz home"
+        :aria-current="currentPage('/')"
       >
         <img :src="logoUrl" alt="" class="h-10 w-auto" />
         <span>Phoenix Vanz</span>
       </NuxtLink>
 
       <button
+        ref="mobileMenuToggle"
         type="button"
-        class="fixed right-4 top-4 z-[100] h-8 w-8 text-white focus:outline-none focus:ring-2 focus:ring-white md:hidden"
+        class="fixed right-3 top-[10px] z-[100] h-11 w-11 text-white focus:outline-none focus:ring-2 focus:ring-white md:hidden"
         :aria-expanded="isOpen"
         aria-controls="mobile-menu"
         :aria-label="isOpen ? 'Close menu' : 'Open menu'"
-        @click="isOpen = !isOpen"
+        @click="toggleMobileMenu"
       >
         <span
           :class="[
-            'absolute left-1 block h-0.5 w-6 bg-white transition duration-300',
-            isOpen ? 'top-4 rotate-45' : 'top-2',
+            'absolute left-2.5 block h-0.5 w-6 bg-white transition duration-300',
+            isOpen ? 'top-[21px] rotate-45' : 'top-3',
           ]"
         />
         <span
           :class="[
-            'absolute left-1 top-4 block h-0.5 w-6 bg-white transition-opacity duration-300',
+            'absolute left-2.5 top-[21px] block h-0.5 w-6 bg-white transition-opacity duration-300',
             isOpen ? 'opacity-0' : 'opacity-100',
           ]"
         />
         <span
           :class="[
-            'absolute left-1 block h-0.5 w-6 bg-white transition duration-300',
-            isOpen ? 'top-4 -rotate-45' : 'top-6',
+            'absolute left-2.5 block h-0.5 w-6 bg-white transition duration-300',
+            isOpen ? 'top-[21px] -rotate-45' : 'top-[30px]',
           ]"
         />
       </button>
@@ -103,6 +151,7 @@ onBeforeUnmount(() => {
             type="button"
             class="text-white hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-white"
             :aria-expanded="isProductDropdownOpen"
+            :aria-current="shopAriaCurrent"
             @focus="isProductDropdownOpen = true"
             @mouseover="isProductDropdownOpen = true; cancelCloseTimeout()"
             @mouseleave="setCloseTimeout"
@@ -120,6 +169,7 @@ onBeforeUnmount(() => {
               <NuxtLink
                 :to="`/shop/${category.slug}`"
                 class="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                :aria-current="currentPage(`/shop/${category.slug}`)"
                 @click="isProductDropdownOpen = false"
               >
                 {{ category.name }}
@@ -140,20 +190,26 @@ onBeforeUnmount(() => {
         </li>
 
         <li>
-          <NuxtLink to="/contact" class="text-white hover:text-blue-300">
+          <NuxtLink
+            to="/contact"
+            class="text-white hover:text-blue-300"
+            :aria-current="currentPage('/contact')"
+          >
             Contact
           </NuxtLink>
         </li>
         <li>
           <NuxtLink
             to="/cart"
-            class="relative inline-flex text-white hover:text-blue-300"
-            aria-label="Shopping cart"
+            class="relative inline-flex h-11 w-11 items-center justify-center text-white hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-white"
+            :aria-label="cartAccessibleLabel"
+            :aria-current="currentPage('/cart')"
           >
             <Icon name="heroicons:shopping-cart" class="h-6 w-6" />
             <span
               v-if="cartItemCount"
               class="absolute -right-3 -top-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs"
+              aria-hidden="true"
             >
               {{ cartItemCount }}
             </span>
@@ -166,16 +222,18 @@ onBeforeUnmount(() => {
           v-if="isOpen"
           id="mobile-menu"
           class="fixed inset-0 z-50 bg-black/50 md:hidden"
-          @click.self="isOpen = false"
+          @click.self="closeMobileMenu()"
         >
           <div
             class="fixed right-0 top-0 flex h-full w-72 flex-col space-y-4 bg-black p-6 pt-20 shadow-lg"
+            @keydown.esc="handleMobileEscape"
           >
             <div>
               <button
                 type="button"
                 class="flex w-full items-center justify-between text-left text-lg font-medium text-white"
                 :aria-expanded="isProductMobileOpen"
+                :aria-current="shopAriaCurrent"
                 @click="isProductMobileOpen = !isProductMobileOpen"
               >
                 Shop by Product
@@ -197,7 +255,8 @@ onBeforeUnmount(() => {
                     <NuxtLink
                       :to="`/shop/${category.slug}`"
                       class="text-white hover:text-blue-300"
-                      @click="isOpen = false"
+                      :aria-current="currentPage(`/shop/${category.slug}`)"
+                      @click="closeMobileMenu()"
                     >
                       {{ category.name }}
                     </NuxtLink>
@@ -210,17 +269,21 @@ onBeforeUnmount(() => {
             </div>
 
             <NuxtLink
+              ref="mobileFirstLink"
               to="/contact"
               class="text-lg text-white hover:text-blue-300"
-              @click="isOpen = false"
+              :aria-current="currentPage('/contact')"
+              @click="closeMobileMenu()"
             >
               Contact
             </NuxtLink>
 
             <NuxtLink
               to="/cart"
-              class="text-lg text-white hover:text-blue-300"
-              @click="isOpen = false"
+              class="inline-flex min-h-11 items-center text-lg text-white hover:text-blue-300"
+              :aria-label="cartAccessibleLabel"
+              :aria-current="currentPage('/cart')"
+              @click="closeMobileMenu()"
             >
               Cart ({{ cartItemCount }})
             </NuxtLink>
