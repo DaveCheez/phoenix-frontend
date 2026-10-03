@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
         cart_id: cartId,
         product_id: body.product_id,
         quantity: body.quantity ?? 1,
-        options: body.options ?? {},
+        options: body.options ?? [],
       },
     });
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { Navigation } from "swiper/modules";
 import { Swiper, SwiperSlide } from "swiper/vue";
@@ -38,13 +38,148 @@ const product = computed(() => {
 });
 
 const selectedImage = ref(null);
-const selectedOptions = ref({});
+const optionState = ref({
+  selections: {},
+  optionIds: [],
+  missingRequiredGroupIds: [],
+  isValid: true,
+});
+const showOptionErrors = ref(false);
+const hasReceivedOptionState = ref(false);
 const activeTab = ref("description");
 const galleryOpen = ref(false);
 const isAddingToCart = ref(false);
 
+const OPTION_ERROR_CODES = new Set([
+  "MISSING_REQUIRED_OPTION",
+  "INVALID_OPTION",
+  "DUPLICATE_OPTION",
+  "DUPLICATE_GROUP_SELECTION",
+  "INVALID_OPTIONS_FORMAT",
+  "CONFIGURATION_CONFLICT",
+]);
+
 const { addToCart: addToCartComposable } = useCart();
 const toast = useToast();
+
+const penceFromDecimalString = (value) => {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^([0-9]+)(?:\.([0-9]{1,2}))?$/);
+  if (!match) return 0;
+
+  const pounds = Number.parseInt(match[1], 10);
+  const fraction = (match[2] || "").padEnd(2, "0");
+  const pence = Number.parseInt(fraction, 10);
+  if (!Number.isInteger(pounds) || !Number.isInteger(pence)) return 0;
+
+  return pounds * 100 + pence;
+};
+
+const formatPence = (pence) => {
+  const safe = Number.isInteger(pence) && pence > 0 ? pence : 0;
+  const pounds = Math.trunc(safe / 100);
+  const remainder = safe % 100;
+  const fraction = remainder < 10 ? `0${remainder}` : String(remainder);
+  return `${pounds}.${fraction}`;
+};
+
+const optionAdjustmentPence = (option) => {
+  const raw = option?.price_adjustment ?? option?.price ?? "0.00";
+  const pence = penceFromDecimalString(raw);
+  return pence > 0 ? pence : 0;
+};
+
+const optionGroups = computed(() =>
+  Array.isArray(product.value?.option_groups) ? product.value.option_groups : [],
+);
+
+const hasRequiredGroups = computed(() =>
+  optionGroups.value.some((group) => group?.required),
+);
+
+const selectedOptionIds = computed(() => {
+  const ids = [];
+  const seen = new Set();
+
+  for (const id of optionState.value.optionIds || []) {
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+
+  return ids;
+});
+
+const optionsValid = computed(() => {
+  if (!optionGroups.value.length) return true;
+  if (!hasReceivedOptionState.value) return false;
+  return optionState.value.isValid === true;
+});
+
+const basePricePence = computed(() =>
+  penceFromDecimalString(product.value?.price ?? "0.00"),
+);
+
+const findOptionById = (optionId) => {
+  for (const group of optionGroups.value) {
+    const options = Array.isArray(group?.options) ? group.options : [];
+    for (const option of options) {
+      if (Number(option?.id) === optionId) return option;
+    }
+  }
+  return null;
+};
+
+const selectedOptionsPence = computed(() => {
+  let total = 0;
+  for (const id of selectedOptionIds.value) {
+    total += optionAdjustmentPence(findOptionById(id));
+  }
+  return total;
+});
+
+const configuredPricePence = computed(
+  () => basePricePence.value + selectedOptionsPence.value,
+);
+
+const formattedBasePrice = computed(() => formatPence(basePricePence.value));
+const formattedSelectedOptionsPrice = computed(() => {
+  const pence = selectedOptionsPence.value;
+  return pence > 0 ? `+£${formatPence(pence)}` : `£${formatPence(0)}`;
+});
+const formattedConfiguredPrice = computed(() =>
+  formatPence(configuredPricePence.value),
+);
+
+const optionPicker = ref(null);
+const addToCartHintId = "product-add-to-cart-hint";
+const addToCartBusy = computed(() => isAddingToCart.value === "loading");
+const addToCartAriaDisabled = computed(
+  () => !addToCartBusy.value && !optionsValid.value,
+);
+
+const onOptionStateUpdate = (state) => {
+  hasReceivedOptionState.value = true;
+  optionState.value = {
+    selections: state?.selections && typeof state.selections === "object"
+      ? state.selections
+      : {},
+    optionIds: Array.isArray(state?.optionIds) ? state.optionIds : [],
+    missingRequiredGroupIds: Array.isArray(state?.missingRequiredGroupIds)
+      ? state.missingRequiredGroupIds
+      : [],
+    isValid: state?.isValid !== false,
+  };
+};
+
+const cartErrorMessage = (error) => {
+  const code = String(error?.data?.code || "");
+  const fallback = "There was an issue adding the item to your cart.";
+  if (OPTION_ERROR_CODES.has(code) && error?.data?.error) {
+    return String(error.data.error);
+  }
+  return errorText(error, fallback);
+};
 
 watch(
   () => product.value?.images,
@@ -89,12 +224,36 @@ const previousImage = () => {
   selectedImage.value = images[(currentIndex - 1 + images.length) % images.length];
 };
 
+watch(
+  () => [product.value?.id, slug.value],
+  () => {
+    showOptionErrors.value = false;
+    hasReceivedOptionState.value = false;
+    if (!optionGroups.value.length) {
+      hasReceivedOptionState.value = true;
+      optionState.value = {
+        selections: {},
+        optionIds: [],
+        missingRequiredGroupIds: [],
+        isValid: true,
+      };
+    }
+  },
+);
+
 const addToCart = async () => {
-  if (!product.value || isAddingToCart.value) return;
+  if (!product.value || addToCartBusy.value) return;
+
+  if (!optionsValid.value) {
+    showOptionErrors.value = true;
+    await nextTick();
+    optionPicker.value?.focusFirstInvalidGroup?.();
+    return;
+  }
 
   isAddingToCart.value = "loading";
   try {
-    await addToCartComposable(product.value.id, 1, selectedOptions.value);
+    await addToCartComposable(product.value.id, 1, selectedOptionIds.value);
     isAddingToCart.value = "added";
     toast.success(`${product.value.name} added to your cart.`);
     window.setTimeout(() => {
@@ -102,7 +261,7 @@ const addToCart = async () => {
     }, 1800);
   } catch (error) {
     console.error("Failed to add item to cart:", error);
-    toast.error(errorText(error, "There was an issue adding the item to your cart."));
+    toast.error(cartErrorMessage(error));
     isAddingToCart.value = false;
   }
 };
@@ -182,18 +341,36 @@ useHead(() => ({
             {{ product.name }}
           </h1>
 
-          <p class="mt-6 text-3xl font-semibold text-gray-900">
-            £{{ Number(product.price).toFixed(2) }}
-          </p>
+          <div class="mt-6 space-y-2">
+            <p class="text-lg text-gray-700">
+              Base price: £{{ formattedBasePrice }}
+            </p>
+            <p class="text-lg text-gray-700">
+              Selected options: {{ formattedSelectedOptionsPrice }}
+            </p>
+            <p
+              class="text-3xl font-semibold text-gray-900"
+              aria-live="polite"
+            >
+              Estimated configured price: £{{ formattedConfiguredPrice }}
+            </p>
+            <p class="text-sm text-gray-600">
+              This is an estimate. Your cart will show the confirmed price from
+              Phoenix Vanz.
+            </p>
+          </div>
 
           <p class="mt-8 text-lg leading-relaxed text-gray-700">
             {{ product.shortDescription || product.description }}
           </p>
 
           <ProductOptions
-            v-if="product.option_groups?.length"
-            :option-groups="product.option_groups"
-            @update:selections="selectedOptions = $event"
+            v-if="optionGroups.length"
+            ref="optionPicker"
+            :product-id="product.id"
+            :option-groups="optionGroups"
+            :report-errors="showOptionErrors"
+            @update:state="onOptionStateUpdate"
           />
 
           <div class="mt-8 border-b">
@@ -223,10 +400,21 @@ useHead(() => ({
             <p v-else>No specifications available.</p>
           </div>
 
+          <p
+            v-if="hasRequiredGroups"
+            :id="addToCartHintId"
+            class="mt-6 text-sm text-gray-600"
+          >
+            Choose an option for every required group before adding this product.
+          </p>
+
           <button
             type="button"
-            class="mt-10 rounded-lg border border-black bg-white px-8 py-4 text-lg font-light uppercase tracking-wide text-black transition hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="Boolean(isAddingToCart)"
+            class="rounded-lg border border-black bg-white px-8 py-4 text-lg font-light uppercase tracking-wide text-black transition hover:bg-black hover:text-white disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            :class="hasRequiredGroups ? 'mt-4' : 'mt-10'"
+            :disabled="addToCartBusy"
+            :aria-disabled="addToCartAriaDisabled ? 'true' : undefined"
+            :aria-describedby="hasRequiredGroups ? addToCartHintId : undefined"
             @click="addToCart"
           >
             <span v-if="isAddingToCart === 'loading'">Adding…</span>

@@ -222,7 +222,7 @@ export function useCart() {
     return response;
   };
 
-  const addToCart = async (productId, quantity = 1, options = {}) =>
+  const addToCart = async (productId, quantity = 1, options = []) =>
     await enqueueMutation(async () => {
       const cartId = await ensureCartExists();
       const response = await $fetch("/api/cart/add", {
@@ -232,7 +232,7 @@ export function useCart() {
           cart_id: cartId,
           product_id: productId,
           quantity: Number(quantity),
-          options,
+          options: Array.isArray(options) ? options : [],
         },
       });
       return await handleMutationResponse(
