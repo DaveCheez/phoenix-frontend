@@ -77,6 +77,36 @@ const removeItem = async (item) => {
     toast.error(error?.message || "Unable to remove the item.");
   }
 };
+
+const serverMoney = (value) => {
+  if (value == null || value === "") return null;
+  const text = String(value).trim();
+  return /^[0-9]+\.[0-9]{2}$/.test(text) ? text : null;
+};
+
+const moneyLabel = (value) => {
+  const money = serverMoney(value);
+  return money == null ? "Unavailable" : `£${money}`;
+};
+
+const optionAdjustmentLabel = (value) => {
+  const money = serverMoney(value);
+  if (money == null) return "Unavailable";
+  return money === "0.00" ? "Included" : `+£${money}`;
+};
+
+const selectedOptions = (item) =>
+  Array.isArray(item?.selected_options) ? item.selected_options : [];
+
+const configuredUnitPrice = (item) =>
+  item?.configured_unit_price ?? item?.price;
+
+const lineTotalLabel = (item) => {
+  const money = serverMoney(item?.line_total);
+  return money == null ? "Unavailable" : `£${money}`;
+};
+
+const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
 </script>
 
 <template>
@@ -105,10 +135,10 @@ const removeItem = async (item) => {
             <li
               v-for="item in cartItems"
               :key="item.item_id"
-              class="flex flex-col items-center justify-between border-b py-6 last:border-b-0 sm:flex-row sm:items-start"
+              class="flex flex-col items-start justify-between gap-4 border-b py-6 last:border-b-0 sm:flex-row"
               :class="{ 'opacity-60': isItemPending(item.item_id) }"
             >
-              <div class="mb-4 flex items-start sm:mb-0">
+              <div class="flex min-w-0 flex-1 items-start">
                 <NuxtLink
                   :to="`/product/${item.product_slug}`"
                   class="shrink-0"
@@ -120,27 +150,83 @@ const removeItem = async (item) => {
                   />
                 </NuxtLink>
 
-                <div class="grow">
+                <div class="min-w-0 grow">
                   <NuxtLink
                     :to="`/product/${item.product_slug}`"
                     class="hover:text-blue-600"
                   >
-                    <h2 class="text-lg font-semibold">{{ item.name }}</h2>
+                    <h2 class="break-words text-lg font-semibold">{{ item.name }}</h2>
                   </NuxtLink>
-                  <p v-if="item.sku" class="mt-1 text-sm text-gray-500">
+                  <p v-if="item.sku" class="mt-1 break-words text-sm text-gray-500">
                     SKU: {{ item.sku }}
                   </p>
-                  <p class="mt-1 text-gray-700">
-                    £{{ Number(item.price).toFixed(2) }} each
+
+                  <ul
+                    v-if="selectedOptions(item).length"
+                    class="mt-3 space-y-2"
+                  >
+                    <li
+                      v-for="option in selectedOptions(item)"
+                      :key="`${item.item_id}-${option.group_id}-${option.option_id}`"
+                      class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm text-gray-700"
+                    >
+                      <span class="min-w-0 break-words">
+                        {{ option.group_name }}: {{ option.option_name }}
+                      </span>
+                      <span class="shrink-0">
+                        {{ optionAdjustmentLabel(option.price_adjustment) }}
+                      </span>
+                    </li>
+                  </ul>
+
+                  <p
+                    v-if="item.configuration_valid === false"
+                    class="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-950"
+                    role="alert"
+                  >
+                    This product configuration is no longer valid. Remove the
+                    item and configure the product again before ordering.
                   </p>
 
-                  <div class="mt-4 flex items-center gap-2">
+                  <dl class="mt-4 space-y-1 text-sm text-gray-700">
+                    <div
+                      v-if="serverMoney(item.base_unit_price)"
+                      class="flex flex-wrap justify-between gap-x-3 gap-y-1"
+                    >
+                      <dt>Base unit price</dt>
+                      <dd>{{ moneyLabel(item.base_unit_price) }}</dd>
+                    </div>
+                    <div
+                      v-if="serverMoney(item.options_total)"
+                      class="flex flex-wrap justify-between gap-x-3 gap-y-1"
+                    >
+                      <dt>Selected options</dt>
+                      <dd>{{ moneyLabel(item.options_total) }}</dd>
+                    </div>
+                    <div
+                      v-if="serverMoney(configuredUnitPrice(item))"
+                      class="flex flex-wrap justify-between gap-x-3 gap-y-1"
+                    >
+                      <dt>Configured unit price</dt>
+                      <dd>{{ moneyLabel(configuredUnitPrice(item)) }}</dd>
+                    </div>
+                    <div class="flex flex-wrap justify-between gap-x-3 gap-y-1">
+                      <dt>Quantity</dt>
+                      <dd>{{ item.quantity }}</dd>
+                    </div>
+                    <div class="flex flex-wrap justify-between gap-x-3 gap-y-1 font-semibold text-gray-900">
+                      <dt>Line total</dt>
+                      <dd>{{ lineTotalLabel(item) }}</dd>
+                    </div>
+                  </dl>
+
+                  <div class="mt-4 flex flex-wrap items-center gap-2">
                     <span class="mr-1 text-sm font-medium text-gray-700">
                       Quantity
                     </span>
                     <button
                       type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-md border text-lg transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      class="flex h-11 w-11 items-center justify-center rounded-md border text-lg transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                       :disabled="isItemPending(item.item_id)"
                       :aria-label="`Decrease ${item.name} quantity`"
                       @click="updateQuantity(item, item.quantity - 1)"
@@ -153,14 +239,14 @@ const removeItem = async (item) => {
                       min="1"
                       max="999"
                       inputmode="numeric"
-                      class="h-9 w-16 rounded-md border text-center"
+                      class="h-11 w-16 rounded-md border text-center"
                       :disabled="isItemPending(item.item_id)"
                       :aria-label="`${item.name} quantity`"
                       @change="handleQuantityInput(item, $event)"
                     />
                     <button
                       type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-md border text-lg transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      class="flex h-11 w-11 items-center justify-center rounded-md border text-lg transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                       :disabled="isItemPending(item.item_id) || item.quantity >= 999"
                       :aria-label="`Increase ${item.name} quantity`"
                       @click="updateQuantity(item, item.quantity + 1)"
@@ -171,13 +257,9 @@ const removeItem = async (item) => {
                 </div>
               </div>
 
-              <div class="flex w-full flex-col items-end sm:w-auto">
+              <div class="flex w-full flex-col items-end sm:w-auto sm:shrink-0">
                 <p class="mb-2 text-lg font-semibold">
-                  £{{
-                    Number(
-                      item.line_total ?? Number(item.price) * item.quantity,
-                    ).toFixed(2)
-                  }}
+                  {{ lineTotalLabel(item) }}
                 </p>
                 <button
                   type="button"
@@ -196,19 +278,18 @@ const removeItem = async (item) => {
       <div class="lg:w-1/3">
         <div class="rounded-lg bg-white p-6 shadow-md lg:sticky lg:top-28">
           <h2 class="mb-4 text-2xl font-bold">Order Summary</h2>
-          <div class="mb-2 flex justify-between">
-            <span>Subtotal</span>
-            <span>£{{ Number(cartTotal).toFixed(2) }}</span>
-          </div>
-          <div class="mb-4 flex justify-between">
-            <span>Installation / delivery</span>
-            <span>Confirmed separately</span>
+          <div class="mb-4">
+            <p class="font-semibold text-gray-900">Workshop fitting only</p>
+            <p class="mt-1 text-sm text-gray-600">
+              All Phoenix Vanz products are completed and fitted at our workshop
+              in Accrington. Delivery is not available.
+            </p>
           </div>
           <div
             class="mt-4 flex justify-between border-t pt-4 text-xl font-bold text-gray-800"
           >
             <span>Total</span>
-            <span>£{{ Number(cartTotal).toFixed(2) }}</span>
+            <span>{{ cartTotalLabel }}</span>
           </div>
           <NuxtLink
             v-if="checkoutEnabled"
