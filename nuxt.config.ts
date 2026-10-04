@@ -19,6 +19,10 @@ export default defineNuxtConfig({
     djangoApiBase: "http://127.0.0.1:8000/api",
     googlePlacesApiKey: "",
     googlePlacesPlaceId: "ChIJ8_c21s8Ke0gRA_p2G3v4g3g",
+    cartCsrfSecret: "",
+    // One explicit origin for this deployment. Confirm the canonical
+    // production hostname before setting NUXT_CART_ORIGIN to its HTTPS origin.
+    cartOrigin: "",
 
     public: {
       siteUrl: "http://localhost:3000",
@@ -30,6 +34,7 @@ export default defineNuxtConfig({
   nitro: {
     preset: "node-server",
     compressPublicAssets: true,
+    errorHandler: "~/server/utils/cartCacheError.ts",
   },
 
   routeRules: {

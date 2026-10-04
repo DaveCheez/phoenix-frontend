@@ -12,7 +12,8 @@
     "dev": "nuxt dev",
     "start": "node .output/server/index.mjs",
     "preview": "nuxt preview",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "test:cart-access": "node --experimental-strip-types --import ./tests/register-ts.mjs --test tests/cart-access.test.ts tests/cart-client.test.js tests/cart-cache-policy.test.ts"
   },
   "dependencies": {
     "@nuxt/icon": "1.11.0",
