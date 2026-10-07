@@ -15,7 +15,7 @@ import {
   handleUpdate,
   type DjangoCall,
 } from "../server/utils/cartActions.ts";
-import { isPlaceholderSecret, parseCartOrigin, type CartConfig } from "../server/utils/cartConfig.ts";
+import { isAppCredential, isPlaceholderSecret, parseCartOrigin, type CartConfig } from "../server/utils/cartConfig.ts";
 import { issueCsrfToken, verifyCsrfToken } from "../server/utils/cartCsrf.ts";
 import { publicCart, readGuestCookie, validateIssuance } from "../server/utils/cartCookies.ts";
 import {
@@ -23,9 +23,18 @@ import {
   csrfReadAllowed,
   mutationOriginAllowed,
 } from "../server/utils/cartGuard.ts";
-import { cartUpstream } from "../server/utils/cartTransport.ts";
+import {
+  cartUpstream,
+  classifyUpstream,
+  credentialUpstreamAllowed,
+  DEVELOPMENT_SHOPPER_ADDRESS,
+  dispatchCartUpstream,
+  selectShopperAddress,
+} from "../server/utils/cartTransport.ts";
 
 const SECRET = "ab".repeat(32);
+const APP = "cd".repeat(32);
+const ADDRESS = "203.0.113.10";
 const GUEST = "A".repeat(43);
 const OTHER_GUEST = "B".repeat(43);
 const BOOTSTRAP = "cd".repeat(32);
@@ -35,6 +44,8 @@ const config: CartConfig = {
   origin: "http://localhost:3000",
   host: "localhost:3000",
   dev: true,
+  appCredential: APP,
+  trustedIngress: "",
 };
 
 const cartBody = {
@@ -141,6 +152,11 @@ test("origin and secret configuration reject anything except the explicit deploy
   assert.equal(isPlaceholderSecret(""), true);
   assert.equal(isPlaceholderSecret("a".repeat(64)), true);
   assert.equal(isPlaceholderSecret(SECRET), false);
+  assert.equal(isAppCredential(""), false);
+  assert.equal(isAppCredential("a".repeat(64)), false);
+  assert.equal(isAppCredential(SECRET.toUpperCase()), false);
+  assert.equal(isAppCredential(` ${APP}`), false);
+  assert.equal(isAppCredential(APP), true);
   assert.equal(parseCartOrigin("http://localhost:3000", true)?.origin, "http://localhost:3000");
   assert.equal(parseCartOrigin("http://localhost:3000", false), null);
   assert.equal(parseCartOrigin("https://phoenixvanz.com", false)?.origin, "https://phoenixvanz.com");
@@ -381,11 +397,16 @@ test("stub transport: upstream failures stay generic and are not retried", async
     path: "cart/",
     method: "GET",
     bearer: GUEST,
+    appCredential: APP,
+    shopperAddress: ADDRESS,
     fetchImpl: async (_url, init) => {
       calls += 1;
       const headers = init?.headers as Record<string, string>;
       assert.equal(headers.cookie, undefined);
       assert.equal(headers.authorization, `Bearer ${GUEST}`);
+      assert.equal(headers["X-Phoenix-App-Credential"], APP);
+      assert.equal(headers["X-Phoenix-Shopper-Address"], ADDRESS);
+      assert.equal("retry" in (init || {}), false);
       assert.equal(init?.redirect, "manual");
       return new Response(null, { status: 302, headers: { location: `https://evil.example/${GUEST}` } });
     },
@@ -399,6 +420,8 @@ test("stub transport: upstream failures stay generic and are not retried", async
     path: "cart/",
     method: "GET",
     bearer: GUEST,
+    appCredential: APP,
+    shopperAddress: ADDRESS,
     fetchImpl: async () => new Response(JSON.stringify({ code: "INVALID_OPTION", error: `bad ${GUEST}` }), {
       status: 400,
       headers: { "content-type": "application/json" },
@@ -410,17 +433,32 @@ test("stub transport: upstream failures stay generic and are not retried", async
     assert.equal(leaked.error.includes(GUEST), false);
   }
 
-  const crashed = await cartUpstream({
-    baseUrl: "http://127.0.0.1:9/api",
-    path: "cart/",
-    method: "GET",
-    bearer: GUEST,
-    fetchImpl: async () => {
-      throw new Error(`network ${GUEST}`);
-    },
-  });
+  const logged: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    logged.push(args.map((item) => String(item)).join(" "));
+  };
+  let crashed: Awaited<ReturnType<typeof cartUpstream>>;
+  try {
+    crashed = await cartUpstream({
+      baseUrl: "http://127.0.0.1:9/api",
+      path: "cart/",
+      method: "GET",
+      bearer: GUEST,
+      appCredential: APP,
+      shopperAddress: ADDRESS,
+      fetchImpl: async () => {
+        throw new Error(`network ${GUEST} ${APP} ${ADDRESS}`);
+      },
+    });
+  } finally {
+    console.error = originalError;
+  }
   assert.equal(crashed.ok, false);
-  assert.equal(JSON.stringify(crashed).includes(GUEST), false);
+  const captured = `${JSON.stringify(crashed)}\n${logged.join("\n")}`;
+  assert.equal(captured.includes(GUEST), false);
+  assert.equal(captured.includes(APP), false);
+  assert.equal(captured.includes(ADDRESS), false);
 });
 
 test("option arrays and configured totals are preserved without browser prices", () => {
@@ -527,6 +565,234 @@ test("stub transport: clear, update and remove keep valid carts and safe validat
   });
   assert.equal(removed.status, 200);
   assert.equal(removed.json.cart.total, "0.00");
+});
+
+function rawEvent(pairs: Array<[string, string]>) {
+  const raw: string[] = [];
+  for (const [key, value] of pairs) raw.push(key, value);
+  return { node: { req: { rawHeaders: raw, headers: {} } } } as unknown as ReturnType<typeof createEvent>;
+}
+
+test("stub transport: Nuxt constructs application headers and ignores browser copies", async () => {
+  assert.notEqual(import.meta.dev, true);
+  const browserCopies = rawEvent([
+    ["do-connecting-ip", ADDRESS],
+    ["x-forwarded-for", "198.51.100.20"],
+    ["x-phoenix-shopper-address", "127.0.0.1"],
+    ["x-phoenix-app-credential", "ee".repeat(32)],
+  ]);
+  assert.equal(selectShopperAddress(browserCopies, import.meta.dev === true, ""), null);
+  assert.equal(selectShopperAddress(browserCopies, import.meta.dev === true, "digitalocean"), ADDRESS);
+  assert.equal(selectShopperAddress(browserCopies, true, ""), DEVELOPMENT_SHOPPER_ADDRESS);
+  assert.equal(selectShopperAddress(browserCopies, true, "digitalocean"), DEVELOPMENT_SHOPPER_ADDRESS);
+
+  let calls = 0;
+  const sent = await dispatchCartUpstream(browserCopies, {
+    dev: false,
+    trustedIngress: "digitalocean",
+    appCredential: APP,
+  }, {
+    baseUrl: "https://cart.example/api",
+    path: "cart/",
+    method: "GET",
+    bearer: GUEST,
+    fetchImpl: async (_url, init) => {
+      calls += 1;
+      const headers = init?.headers as Record<string, string>;
+      assert.equal(headers["X-Phoenix-App-Credential"], APP);
+      assert.equal(headers["X-Phoenix-Shopper-Address"], ADDRESS);
+      assert.equal(headers.authorization, `Bearer ${GUEST}`);
+      assert.equal(headers.cookie, undefined);
+      assert.equal(init?.redirect, "manual");
+      return new Response(JSON.stringify({ success: true, cart: cartBody }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(sent.ok, true);
+
+  const development = await dispatchCartUpstream(browserCopies, {
+    dev: true,
+    trustedIngress: "",
+    appCredential: APP,
+  }, {
+    baseUrl: "http://127.0.0.1:9/api",
+    path: "cart/",
+    method: "GET",
+    fetchImpl: async (_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      assert.equal(headers["X-Phoenix-Shopper-Address"], DEVELOPMENT_SHOPPER_ADDRESS);
+      return new Response(JSON.stringify({ success: true, cart: cartBody }), { status: 200 });
+    },
+  });
+  assert.equal(development.ok, true);
+});
+
+test("stub transport: missing configuration and untrusted ingress send no upstream request", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    throw new Error(`called ${APP}`);
+  };
+  const missingCredential = await dispatchCartUpstream(rawEvent([["do-connecting-ip", ADDRESS]]), {
+    dev: false,
+    trustedIngress: "digitalocean",
+    appCredential: "",
+  }, {
+    baseUrl: "https://cart.example/api",
+    path: "cart/",
+    method: "GET",
+    fetchImpl,
+  });
+  const closed = await dispatchCartUpstream(rawEvent([
+    ["do-connecting-ip", "127.0.0.1"],
+    ["x-forwarded-for", ADDRESS],
+    ["x-phoenix-shopper-address", DEVELOPMENT_SHOPPER_ADDRESS],
+  ]), {
+    dev: false,
+    trustedIngress: "",
+    appCredential: APP,
+  }, {
+    baseUrl: "https://cart.example/api",
+    path: "cart/",
+    method: "GET",
+    fetchImpl,
+  });
+  const remoteHttp = await cartUpstream({
+    baseUrl: "http://cart.example/api",
+    path: "cart/",
+    method: "GET",
+    appCredential: APP,
+    shopperAddress: ADDRESS,
+    fetchImpl,
+  });
+  assert.equal(calls, 0);
+  for (const result of [missingCredential, closed, remoteHttp]) {
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, "CART_SERVICE_CONFIGURATION");
+    const captured = JSON.stringify(result);
+    assert.equal(captured.includes(APP), false);
+    assert.equal(captured.includes(ADDRESS), false);
+    assert.equal(captured.includes(DEVELOPMENT_SHOPPER_ADDRESS), false);
+  }
+  assert.equal(credentialUpstreamAllowed("https://cart.example/api"), true);
+  assert.equal(credentialUpstreamAllowed("http://127.0.0.1:8000/api"), true);
+  assert.equal(credentialUpstreamAllowed("http://localhost:8000/api"), true);
+  assert.equal(credentialUpstreamAllowed("http://10.0.0.5/api"), false);
+});
+
+test("stub transport: digitalocean accepts one address and rejects ambiguous values", () => {
+  const selected = (pairs: Array<[string, string]>) => selectShopperAddress(
+    rawEvent(pairs),
+    false,
+    "digitalocean",
+  );
+  assert.equal(selected([["do-connecting-ip", ADDRESS]]), ADDRESS);
+  assert.equal(selected([["do-connecting-ip", "2001:db8::1"]]), "2001:db8::1");
+  const rejected: Array<Array<[string, string]>> = [
+    [],
+    [["x-forwarded-for", ADDRESS]],
+    [["do-connecting-ip", ADDRESS], ["do-connecting-ip", "198.51.100.8"]],
+    [["do-connecting-ip", `${ADDRESS}, 198.51.100.8`]],
+    [["do-connecting-ip", `${ADDRESS} `]],
+    [["do-connecting-ip", ` ${ADDRESS}`]],
+    [["do-connecting-ip", `${ADDRESS}:443`]],
+    [["do-connecting-ip", "203.0.113.0/24"]],
+    [["do-connecting-ip", "[2001:db8::1]"]],
+    [["do-connecting-ip", "fe80::1%eth0"]],
+    [["do-connecting-ip", "not-an-ip"]],
+  ];
+  for (const pairs of rejected) {
+    assert.equal(selected(pairs), null);
+  }
+  assert.equal(selectShopperAddress(rawEvent([["do-connecting-ip", DEVELOPMENT_SHOPPER_ADDRESS]]), false, ""), null);
+  assert.equal(selectShopperAddress(rawEvent([["x-forwarded-for", DEVELOPMENT_SHOPPER_ADDRESS]]), false, "digitalocean"), null);
+  assert.notEqual(selected([]), DEVELOPMENT_SHOPPER_ADDRESS);
+});
+
+test("stub transport: application failure preserves cookies and guest 401 stays recoverable", async () => {
+  const application = classifyUpstream(503, {
+    code: "CART_APPLICATION_REJECTED",
+    error: `rejected ${APP} ${ADDRESS}`,
+  }, { appCredential: APP, shopperAddress: ADDRESS });
+  assert.equal(application.ok, false);
+  if (!application.ok) {
+    assert.equal(application.status, 503);
+    assert.equal(application.code, "CART_SERVICE_UNAVAILABLE");
+    assert.equal(JSON.stringify(application).includes(APP), false);
+    assert.equal(JSON.stringify(application).includes(ADDRESS), false);
+  }
+
+  const guestDenied = classifyUpstream(401, {
+    code: "CART_ACCESS_UNAVAILABLE",
+    error: "Cart access is not available.",
+  });
+  assert.equal(guestDenied.ok, false);
+  if (!guestDenied.ok) {
+    assert.equal(guestDenied.status, 401);
+    assert.equal(guestDenied.code, "CART_ACCESS_UNAVAILABLE");
+  }
+
+  const limited = classifyUpstream(429, {
+    code: "CART_RATE_LIMITED",
+    error: `budget ${APP}`,
+  }, { appCredential: APP });
+  assert.equal(limited.ok, false);
+  if (!limited.ok) {
+    assert.equal(limited.status, 429);
+    assert.equal(limited.code, "CART_RATE_LIMITED");
+    assert.equal(JSON.stringify(limited).includes(APP), false);
+  }
+  const otherLimit = classifyUpstream(429, { code: "TOO_MANY" });
+  assert.equal(otherLimit.ok, false);
+  if (!otherLimit.ok) assert.equal(otherLimit.code, "CART_SERVICE_UNAVAILABLE");
+
+  const csrf = issueCsrfToken({ secret: SECRET, context: "guest", binding: GUEST });
+  const headers = mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` });
+  const read = await callRoute(handleGet, {
+    headers: { cookie: `phoenix_guest_dev=${GUEST}` },
+    django: async () => application,
+  });
+  assert.equal(read.status, 503);
+  assert.equal(read.json.code, "CART_SERVICE_UNAVAILABLE");
+  assert.equal(read.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), false);
+  assert.equal(read.text.includes(APP), false);
+
+  let writes = 0;
+  const added = await callRoute(handleAdd, {
+    method: "POST",
+    headers,
+    body: { product_id: 3, quantity: 1, options: [8] },
+    django: async () => {
+      writes += 1;
+      return application;
+    },
+  });
+  assert.equal(writes, 1);
+  assert.equal(added.status, 503);
+  assert.equal(added.json.code, "CART_SERVICE_UNAVAILABLE");
+  assert.equal(added.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), false);
+
+  const reset = await callRoute(handleReset, {
+    method: "POST",
+    headers,
+    body: { confirm: true },
+    django: async () => application,
+  });
+  assert.equal(reset.status, 503);
+  assert.equal(reset.json.code, "CART_TEMPORARILY_UNAVAILABLE");
+  assert.notEqual(reset.json.code, "CART_ACCESS_UNAVAILABLE");
+  assert.equal(reset.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), false);
+
+  const recovered = await callRoute(handleGet, {
+    headers: { cookie: `phoenix_guest_dev=${GUEST}` },
+    django: async () => guestDenied,
+  });
+  assert.equal(recovered.status, 401);
+  assert.equal(recovered.json.code, "CART_ACCESS_UNAVAILABLE");
+  assert.equal(recovered.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), false);
 });
 
 function fakeEvent(headers: Record<string, string>) {

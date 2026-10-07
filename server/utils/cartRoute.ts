@@ -3,21 +3,32 @@ import type { H3Event } from "h3";
 import { setResponseStatus } from "h3";
 
 import {
+  isAppCredential,
   isPlaceholderSecret,
   logCartEvent,
   parseCartOrigin,
   type CartConfig,
 } from "./cartConfig";
 import { markCartResponsePrivate } from "./cartResponse";
-import { cartUpstream, type UpstreamResult } from "./cartTransport";
+import { dispatchCartUpstream, type UpstreamResult } from "./cartTransport";
 
 export function resolveCartConfig(event: H3Event): CartConfig | null {
   const runtimeConfig = useRuntimeConfig(event);
   const secret = String(runtimeConfig.cartCsrfSecret || "").trim();
+  const appCredential = String(runtimeConfig.cartAppCredential || "");
+  const trustedIngress = String(runtimeConfig.cartTrustedIngress || "");
   const dev = import.meta.dev === true;
   const origin = parseCartOrigin(runtimeConfig.cartOrigin, dev);
-  if (!origin || isPlaceholderSecret(secret)) return null;
-  return { secret, origin: origin.origin, host: origin.host, dev };
+  if (!origin || isPlaceholderSecret(secret) || !isAppCredential(appCredential)) return null;
+  if (!dev && trustedIngress !== "digitalocean") return null;
+  return {
+    secret,
+    origin: origin.origin,
+    host: origin.host,
+    dev,
+    appCredential,
+    trustedIngress,
+  };
 }
 
 export function configurationFailure(event: H3Event) {
@@ -42,6 +53,7 @@ export function beginCart(event: H3Event):
 
 export async function callDjango(
   event: H3Event,
+  config: CartConfig,
   input: {
     path: string;
     method: string;
@@ -49,9 +61,8 @@ export async function callDjango(
     bearer?: string;
   },
 ): Promise<UpstreamResult> {
-  const baseUrl = String(useRuntimeConfig(event).djangoApiBase || "");
-  const result = await cartUpstream({
-    baseUrl,
+  const result = await dispatchCartUpstream(event, config, {
+    baseUrl: String(useRuntimeConfig(event).djangoApiBase || ""),
     path: input.path,
     method: input.method,
     body: input.body,

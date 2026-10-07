@@ -1,15 +1,24 @@
 const SECRET_PATTERN = /^[0-9a-f]{64}$/i;
 
+const APP_CREDENTIAL_PATTERN = /^[0-9a-f]{64}$/;
+
 export type CartConfig = {
   secret: string;
   origin: string;
   host: string;
   dev: boolean;
+  appCredential: string;
+  trustedIngress: string;
 };
 
 export function isPlaceholderSecret(value: string): boolean {
   if (!SECRET_PATTERN.test(value)) return true;
   return /^(.)\1{63}$/.test(value.toLowerCase());
+}
+
+export function isAppCredential(value: string): boolean {
+  if (!APP_CREDENTIAL_PATTERN.test(value)) return false;
+  return !/^(.)\1{63}$/.test(value);
 }
 
 export function parseCartOrigin(

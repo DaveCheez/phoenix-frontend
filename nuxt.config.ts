@@ -23,6 +23,11 @@ export default defineNuxtConfig({
     // One explicit origin for this deployment. Confirm the canonical
     // production hostname before setting NUXT_CART_ORIGIN to its HTTPS origin.
     cartOrigin: "",
+    // Separate from the guest, CSRF, contact and Django secrets.
+    cartAppCredential: "",
+    // Empty outside Nuxt development. "digitalocean" is an explicit
+    // trusted-ingress assumption, not a live setting in this repository.
+    cartTrustedIngress: "",
 
     public: {
       siteUrl: "http://localhost:3000",

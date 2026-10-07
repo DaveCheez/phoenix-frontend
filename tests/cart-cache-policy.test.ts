@@ -19,11 +19,15 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const serverEntry = fileURLToPath(new URL("../.output/server/index.mjs", import.meta.url));
 const TEST_ORIGIN = "https://cart-cache-test.invalid";
 const VALID_SECRET = "ab".repeat(32);
+const APP_CREDENTIAL = "cd".repeat(32);
 const INVALID_SECRET = `not-valid-${process.pid}`;
+const BUILT_GUEST = "C".repeat(43);
+const BUILT_ADDRESS = "203.0.113.10";
 
 function redact(text: string): string {
   return text
     .replaceAll(VALID_SECRET, "[redacted]")
+    .replaceAll(APP_CREDENTIAL, "[redacted]")
     .replaceAll(INVALID_SECRET, "[redacted]")
     .replace(/[0-9a-f]{64}/gi, "[redacted]");
 }
@@ -115,7 +119,10 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   });
 }
 
-async function startBuiltServer(secret: string): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
+async function startBuiltServer(
+  secret: string,
+  extra: Record<string, string> = {},
+): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
   const port = await freePort();
   let output = "";
   const child = spawn(process.execPath, [serverEntry], {
@@ -128,6 +135,9 @@ async function startBuiltServer(secret: string): Promise<{ baseUrl: string; stop
       NITRO_PORT: String(port),
       NUXT_CART_ORIGIN: TEST_ORIGIN,
       NUXT_CART_CSRF_SECRET: secret,
+      NUXT_CART_APP_CREDENTIAL: APP_CREDENTIAL,
+      NUXT_CART_TRUSTED_INGRESS: "digitalocean",
+      ...extra,
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -240,5 +250,86 @@ test("built nitro: invalid cart configuration stays private and does not echo th
     assert.equal(missing.text.includes(INVALID_SECRET), false);
   } finally {
     await server.stop();
+  }
+});
+
+test("built nitro: production selects one connecting address and fails closed without trusted ingress", { timeout: 30000 }, async () => {
+  const seen: Array<Record<string, string | undefined>> = [];
+  const stub = createServer((req, res) => {
+    seen.push({
+      authorization: req.headers.authorization,
+      cookie: req.headers.cookie,
+      app: req.headers["x-phoenix-app-credential"],
+      address: req.headers["x-phoenix-shopper-address"],
+    });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      success: true,
+      cart: {
+        id: "11111111-1111-1111-1111-111111111111",
+        items: [],
+        item_count: 0,
+        total: "0.00",
+      },
+    }));
+  });
+  await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  const stubAddress = stub.address();
+  if (!stubAddress || typeof stubAddress === "string") throw new Error("No stub port");
+  const djangoBase = `http://127.0.0.1:${stubAddress.port}/api`;
+  const browserHeaders = {
+    cookie: `__Host-phoenix_guest=${BUILT_GUEST}`,
+    "do-connecting-ip": BUILT_ADDRESS,
+    "x-forwarded-for": "198.51.100.20",
+    "x-phoenix-shopper-address": "127.0.0.1",
+    "x-phoenix-app-credential": "ee".repeat(32),
+  };
+  const trusted = await startBuiltServer(VALID_SECRET, { NUXT_DJANGO_API_BASE: djangoBase });
+  try {
+    const response = await fetch(`${trusted.baseUrl}/api/cart`, { headers: browserHeaders, redirect: "manual" });
+    const text = await response.text();
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].app, APP_CREDENTIAL);
+    assert.equal(seen[0].address, BUILT_ADDRESS);
+    assert.equal(seen[0].authorization, `Bearer ${BUILT_GUEST}`);
+    assert.equal(seen[0].cookie, undefined);
+    assert.equal(text.includes(APP_CREDENTIAL), false);
+    assert.equal(text.includes("127.0.0.1"), false);
+    assert.equal(text.includes(BUILT_ADDRESS), false);
+    assert.equal(response.status, 200);
+    assertCartPolicy(response.headers);
+
+    seen.length = 0;
+    const malformed = await fetch(`${trusted.baseUrl}/api/cart`, {
+      headers: { ...browserHeaders, "do-connecting-ip": `${BUILT_ADDRESS}, 198.51.100.8` },
+      redirect: "manual",
+    });
+    const malformedText = await malformed.text();
+    assert.equal(seen.length, 0);
+    assert.equal(malformed.status, 503);
+    assert.equal(JSON.parse(malformedText).code, "CART_SERVICE_CONFIGURATION");
+    assert.equal(malformedText.includes(APP_CREDENTIAL), false);
+  } finally {
+    await trusted.stop();
+  }
+
+  seen.length = 0;
+  const closed = await startBuiltServer(VALID_SECRET, {
+    NUXT_DJANGO_API_BASE: djangoBase,
+    NUXT_CART_TRUSTED_INGRESS: "",
+  });
+  try {
+    const response = await fetch(`${closed.baseUrl}/api/cart`, { headers: browserHeaders, redirect: "manual" });
+    const text = await response.text();
+    assert.equal(seen.length, 0);
+    assert.equal(response.status, 503);
+    assert.equal(JSON.parse(text).code, "CART_SERVICE_CONFIGURATION");
+    assert.equal(text.includes(APP_CREDENTIAL), false);
+    assert.equal(text.includes("127.0.0.1"), false);
+    assert.equal(text.includes(BUILT_ADDRESS), false);
+    assertCartPolicy(response.headers);
+  } finally {
+    await closed.stop();
+    await new Promise<void>((resolve) => stub.close(resolve));
   }
 });

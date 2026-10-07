@@ -4,14 +4,14 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ORIGIN = "http://localhost:3000";
-const PRODUCT = `${ORIGIN}/product/guest-cart-integration-test`;
-const CART = `${ORIGIN}/cart`;
+export const ORIGIN = "http://localhost:3000";
+export const PRODUCT = `${ORIGIN}/product/guest-cart-integration-test`;
+export const CART = `${ORIGIN}/cart`;
 const EDGE = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-const UNCERTAIN = "We could not confirm the latest basket update. Check your basket before trying the change again.";
+export const UNCERTAIN = "We could not confirm the latest basket update. Check your basket before trying the change again.";
 const LAST_CONFIRMED = "Last confirmed basket — the latest change is not confirmed.";
 const LOCKS_MESSAGE = "This browser cannot safely update the basket. Use a current browser, or contact Phoenix Vanz.";
 
@@ -22,11 +22,11 @@ function record(result) {
   console.log(`${result.id} ${result.status}${result.detail ? ` — ${result.detail}` : ""}`);
 }
 
-function sleep(ms) {
+export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitFor(fn, timeoutMs, label) {
+export async function waitFor(fn, timeoutMs, label) {
   const started = Date.now();
   let last;
   while (Date.now() - started < timeoutMs) {
@@ -292,7 +292,7 @@ function cookieNames(headers = {}) {
   return [...String(raw).matchAll(/(?:^|[\n,])\s*([A-Za-z0-9_-]+)=/g)].map((match) => match[1]);
 }
 
-async function launch() {
+export async function launch() {
   const profile = await mkdtemp(join(tmpdir(), "phoenix-guest-cart-"));
   const port = 9333;
   const child = spawn(EDGE, [
@@ -327,7 +327,7 @@ async function launch() {
   return new Browser(ws, child, profile);
 }
 
-function isCreate(path) {
+export function isCreate(path) {
   return path === "/api/cart/create" || path === "/api/cart/create/";
 }
 
@@ -731,7 +731,7 @@ const FRONTEND_ROOT = dirname(fileURLToPath(import.meta.url));
 const BACKEND_ROOT = "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\backend";
 const BACKEND_PYTHON = "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\venv\\Scripts\\python.exe";
 
-function redact(text) {
+export function redact(text) {
   return String(text)
     .replace(/[0-9a-fA-F]{64}/g, "[redacted]")
     .replace(/[A-Za-z0-9_-]{43}/g, "[redacted]");
@@ -830,7 +830,7 @@ function startFixtureHelper() {
   return new FixtureHelper(child);
 }
 
-async function guestCookie(page) {
+export async function guestCookie(page) {
   const listed = await page.send("Network.getCookies", { urls: [ORIGIN] });
   const cookie = (listed.cookies || []).find((item) => item.name === "phoenix_guest_dev");
   if (!cookie) return { present: false, httpOnly: false, expires: null, value: "" };
@@ -842,7 +842,7 @@ async function guestCookie(page) {
   };
 }
 
-function cookieSame(before, after) {
+export function cookieSame(before, after) {
   return before.present === true
     && after.present === true
     && before.httpOnly === true
@@ -1155,4 +1155,6 @@ async function main() {
   if (failed) process.exitCode = 1;
 }
 
-await main();
+const enteredDirectly = process.argv[1]
+  && resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]);
+if (enteredDirectly) await main();

@@ -12,10 +12,63 @@ These values are private. They are not part of `runtimeConfig.public`.
   invent a replacement secret.
 - `NUXT_CART_ORIGIN`: one explicit origin for this deployment, such as
   `http://localhost:3000` in Nuxt development. Production must be HTTPS.
+- `NUXT_CART_APP_CREDENTIAL`: exactly 64 lowercase hexadecimal characters.
+  Generate it separately from the guest, CSRF, contact and Django secrets.
+  Missing, uppercase, malformed and repeated-character values are rejected
+  before any Django call. The process does not invent a replacement.
+- `NUXT_CART_TRUSTED_INGRESS`: records an explicit trusted-ingress assumption.
+  The committed default is empty. Empty and unsupported values fail closed
+  outside Nuxt development. `digitalocean` is the only accepted value, and it
+  is not enabled in the deployment configuration. Correct use requires
+  verification that accepted ingress paths supply or overwrite
+  `do-connecting-ip`. Parser tests do not prove provider header provenance.
+  Trust is not inferred from `NODE_ENV`, a hostname suffix, or the presence of
+  a well-formed header.
 
 Do not reuse the contact-proxy secret or a Django secret. Do not infer the
 origin from `Host`, `X-Forwarded-Host`, `www`, a sibling subdomain or a preview
 host. Confirm the canonical production hostname before deployment.
+
+## Application credential and shopper address
+
+Nuxt constructs these headers on the cart Django call. Browser copies are not
+forwarded.
+
+- `X-Phoenix-App-Credential`: the private application credential.
+- `X-Phoenix-Shopper-Address`: the address selected by the server.
+- `Authorization`: the existing guest bearer, only when that cookie is present.
+
+In Nuxt development, `import.meta.dev` selects the fixed address `127.0.0.1`.
+Browser address headers, forwarding headers and socket addresses are ignored.
+The application credential and the existing guest and CSRF checks still apply.
+
+Outside development, the address is exactly one `do-connecting-ip` value, and
+only when `NUXT_CART_TRUSTED_INGRESS` is `digitalocean`. Duplicates, joined
+values, whitespace, malformed IP addresses, brackets, ports, CIDR prefixes and
+IPv6 zone identifiers are rejected. There is no fallback to a socket,
+`X-Forwarded-For`, or the development address.
+
+Credential-bearing upstream calls use HTTPS. HTTP remains available only for
+an explicit `localhost` or `127.0.0.1` base URL. Redirects are not followed
+and are not retried. The application credential and shopper address are not
+returned to the browser or written to cart logs.
+
+Django `503 CART_APPLICATION_REJECTED` becomes the existing safe
+`503 CART_SERVICE_UNAVAILABLE` response. It does not become
+`CART_ACCESS_UNAVAILABLE`, clear the guest cookie, or start a replacement.
+`401 CART_ACCESS_UNAVAILABLE` remains only the exact guest-access response
+from the authenticated Django path. A genuine `429 CART_RATE_LIMITED` stays
+429. This patch does not enforce a counter.
+
+## Deferred request accounting
+
+`GET /api/cart/csrf` and `POST /api/cart/reset` do not call a Django budget
+endpoint yet. That fixed-scope interface is still pending. When it is added,
+CSRF uses its existing host, Fetch Metadata and Origin-Referer checks before
+the budget call, and it cannot require the CSRF token it is about to issue.
+Reset passes its existing mutation guards before the budget call. Actual
+exhaustion is 429. Unavailable accounting is a controlled service failure.
+Neither path clears identity or replays a mutation.
 
 ## Cookies and CSRF
 
@@ -121,3 +174,19 @@ required Specification options Standard (£0.00) and Enhanced (£25.00).
 | Missing cart, valid session | PASS | Only that run's cart was deleted. The guest session and browser cookie stayed in place (`unchanged=true`). Refresh returned 409 `GUEST_CART_MISSING` and the missing-basket notice. No start, reset or replacement ran until Open an empty basket. That control sent `replace_missing` and received 201. One new empty cart is on the original session, with the same expiry and revocation state and no new guest session. Reload stayed empty. A separate Add then stored Enhanced and None at £125.00. |
 
 The lifecycle checks were recorded on 5 October 2026 with Microsoft Edge 154.0.4258.53 against `http://localhost:3000`, and Django at `127.0.0.1:8000`. Frontend `a7b1b263e1d6f04263c8ec7b7e1249668b18a4d2` and backend `cb3e04f5dbaaf3277e05448a130fa3cdbd19d5fc` were the commits under test. The catalogue response confirmed base £100.00, Enhanced option 5 at £25.00, and default None option 6 at £0.00 before those IDs were used. No 401 or 409 response was injected. The browser cookie was not deleted as a substitute for the database change. This development run still does not verify the production HTTPS `__Host-phoenix_guest` cookie. The injected 429 check and the post-commit response-loss check above are unchanged and are not these lifecycle results.
+
+## Application authentication verification
+
+Recorded on 7 October 2026 with Microsoft Edge 154.0.4258.62, headless, against local Nuxt development at `http://localhost:3000` and Django at `http://127.0.0.1:8000`. Frontend HEAD was `774bee8b033011dbe7b1c52f7a8adfe93d075b62` and backend HEAD was `12c204beb9ccec3a3626901c7e92c894af258fa3`. Both application-authentication patches were uncommitted. The local catalogue response was product 2, base £100.00, Enhanced option 5 at £25.00, and default None option 6 at £0.00.
+
+The normal Nuxt process kept `NUXT_CART_TRUSTED_INGRESS` empty. A separate Nuxt development process, on its own localhost port, used a different syntactically valid application credential and `NUXT_IGNORE_LOCK=1`. That process was stopped afterwards. No credential, cookie, CSRF token, or application header was recorded. `NUXT_CART_TRUSTED_INGRESS` was not set to `digitalocean`. This run does not prove live DigitalOcean header provenance.
+
+| Check | Result | What was observed |
+| --- | --- | --- |
+| Visit without start | PASS | No create request. The read-only SQLite session and cart counts stayed the same. |
+| Start, Enhanced plus None, add | PASS | Create was 201. Add was 201. Django returned configured unit £125.00, line £125.00, total £125.00, options 5 and 6. |
+| Reload | PASS | The same basket returned total £125.00 with Enhanced and None. |
+| Increase | PASS | One update returned quantity 2, configured unit £125.00, line £250.00, and total £250.00. |
+| Direct Django rejection | PASS | Missing credential, forged forwarding and shopper headers, and a valid guest bearer alone were 503 `CART_APPLICATION_REJECTED`. A valid application credential with a missing or malformed shopper address was 503 `CART_APPLICATION_REJECTED`. A valid application credential and address with a missing or invalid guest bearer was 401 `CART_ACCESS_UNAVAILABLE`. The read-only SQLite row for that basket was unchanged. |
+| Mismatched application credential | PASS | The cart page made two GET requests, both 503 `CART_SERVICE_UNAVAILABLE`, showed the uncertainty message and Refresh basket, and did not show guest recovery. No mutation was sent from that failed read. A separate ready page forwarded its cart reads to the matching server and sent one update to the mismatched server; that update was 503 `CART_SERVICE_UNAVAILABLE` and was not repeated. A real CSRF reset was one POST, 503 `CART_TEMPORARILY_UNAVAILABLE`, and the guest cookie compared equal. SQLite was unchanged. |
+| Restored matching access | PASS | Refresh through the normal UI reopened the same basket at £250.00. There was no new start or reset. The guest cookie compared equal. |
