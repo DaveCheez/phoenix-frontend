@@ -13,7 +13,7 @@
     "start": "node .output/server/index.mjs",
     "preview": "nuxt preview",
     "smoke": "node scripts/smoke-test.mjs",
-    "test:cart-access": "node --experimental-strip-types --import ./tests/register-ts.mjs --test tests/cart-access.test.ts tests/cart-client.test.js tests/cart-cache-policy.test.ts tests/product-recovery.test.js"
+    "test:cart-access": "node --experimental-strip-types --import ./tests/register-ts.mjs --test tests/cart-access.test.ts tests/cart-client.test.js tests/cart-cache-policy.test.ts tests/product-recovery.test.js tests/cart-page-recovery.test.js"
   },
   "dependencies": {
     "@nuxt/icon": "1.11.0",

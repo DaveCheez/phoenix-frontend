@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import logoUrl from "~/assets/images/logo.png";
 import { LAST_CONFIRMED_LABEL, logCartFailure } from "~/utils/cartClient";
+import { runProductRecovery } from "~/utils/productRecovery";
 
 const {
   access,
@@ -19,6 +20,7 @@ const {
   removeFromCart,
 } = useCart();
 const toast = useToast();
+const recoveryFeedback = ref("");
 const config = useRuntimeConfig();
 const checkoutEnabled = computed(() =>
   config.public.checkoutEnabled === true ||
@@ -34,6 +36,13 @@ onMounted(async () => {
     toast.error(error?.customerMessage || "Your cart could not be loaded. Please refresh and try again.");
   }
 });
+
+const recoverFromNotice = async () => {
+  await runProductRecovery({
+    recover: () => recoverBasket(),
+    feedback: recoveryFeedback,
+  });
+};
 
 const reportCartFailure = (operation, error) => {
   logCartFailure(operation, error);
@@ -146,7 +155,8 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
       class="mb-6"
       :access="access"
       :pending="pending"
-      @action="recoverBasket"
+      :feedback="recoveryFeedback"
+      @action="recoverFromNotice"
     />
 
     <div v-if="isCartLoading" class="py-16 text-center" aria-live="polite">
