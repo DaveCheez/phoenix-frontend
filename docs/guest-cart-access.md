@@ -268,3 +268,31 @@ The normal Nuxt process kept `NUXT_CART_TRUSTED_INGRESS` empty. A separate Nuxt 
 | Direct Django rejection | PASS | Missing credential, forged forwarding and shopper headers, and a valid guest bearer alone were 503 `CART_APPLICATION_REJECTED`. A valid application credential with a missing or malformed shopper address was 503 `CART_APPLICATION_REJECTED`. A valid application credential and address with a missing or invalid guest bearer was 401 `CART_ACCESS_UNAVAILABLE`. The read-only SQLite row for that basket was unchanged. |
 | Mismatched application credential | PASS | The cart page made two GET requests, both 503 `CART_SERVICE_UNAVAILABLE`, showed the uncertainty message and Refresh basket, and did not show guest recovery. No mutation was sent from that failed read. A separate ready page forwarded its cart reads to the matching server and sent one update to the mismatched server; that update was 503 `CART_SERVICE_UNAVAILABLE` and was not repeated. A real CSRF reset was one POST, 503 `CART_TEMPORARILY_UNAVAILABLE`, and the guest cookie compared equal. SQLite was unchanged. |
 | Restored matching access | PASS | Refresh through the normal UI reopened the same basket at £250.00. There was no new start or reset. The guest cookie compared equal. |
+
+## Enabled budget verification
+
+Recorded on 8 October 2026. Frontend `f703a1b6d5c587069baf5a6859069d5d7372bf74` and backend `5046f1102f5b3b74bfa97c6359dc604e9ad12209` were committed and their working trees were clean before this run. Node was v22.14.0. Microsoft Edge was 154.0.4258.62, headless, in fresh temporary profiles. PostgreSQL was the official `postgres:16` image, server version 16.15, published only on `127.0.0.1`. The disposable database was `phoenix_vanz_budget`. Django used `base.settings_postgres_tests` with local cache, email and media storage. Cart migration `0006_frontend_budget_scopes` was applied there. The normal Nuxt process on port 3000 and Django process on port 8000 were left running. No normal `.env` or `db.sqlite3` was changed.
+
+The policies below are TEST ONLY. They are not production quotas.
+
+| Scope | Window | Limit |
+| --- | --- | --- |
+| csrf | 60 seconds | 8 |
+| reset | 3600 seconds | 1 |
+| issuance | 3600 seconds | 30 |
+| failed_access | 3600 seconds | 30 |
+| authenticated_cart | 3600 seconds | 8 |
+
+The disposable catalogue had one product, base £100.00, with Enhanced at £25.00 and None at £0.00. A required Standard option at £0.00 was also present so Enhanced could be selected. Nothing was copied from the normal database.
+
+| Check | Result | What was observed |
+| --- | --- | --- |
+| Unmodified test-entry startup | PASS | `npm run test:cart-access` passed 52 tests. The built-server tests launch `node .output/server/index.mjs` directly. |
+| Enabled CSRF denial | PASS | One browser CSRF request and seven direct Nuxt CSRF requests returned 200. The next Start a new basket sent GET `/api/cart/csrf` 429 `CART_RATE_LIMITED`, browser Retry-After `35`, no CSRF token and no Set-Cookie. No start, add, update or reset followed. The csrf counter for that window ended at 9. No cart or session was created. |
+| Enabled reset denial | PASS | A direct reset without CSRF was 403 `CART_REQUEST_REJECTED` and created no reset counter. One labeled Django budget request then returned 200 `CART_BUDGET_ALLOWED`. The browser reset, after its own CSRF request returned 200, was POST `/api/cart/reset` 429 `CART_RATE_LIMITED` with Retry-After `1315`. Django recorded a budget 200 and then a budget 429, and no following guest-cart GET. |
+| Enabled authenticated-cart denial | PASS | A confirmed line was quantity 1, Enhanced £25.00 and None £0.00. Seven labeled Django reads for that guest returned 200. The next Add sent CSRF 200 and then POST `/api/cart/add` 429 `CART_RATE_LIMITED`, Retry-After `1300`. Django recorded the add itself as 429. The stored line stayed quantity 1 with those options. |
+| Retry-After forwarding | PASS | The browser-visible values were `35`, `1315` and `1300`. Each was a single positive decimal integer within 1..86400. |
+| Cookie and cart preservation | PASS | Denied responses had no Set-Cookie. The bootstrap cookie, guest cookie, quantity, selections and basket snapshot compared equal across each denial. |
+| Real-window recovery | PASS | The csrf window end read from the counter was `2026-10-08T21:38:00+00:00`. `expires_at` was five minutes later and was not used. The browser sent no cart request while waiting. The next explicit Start received CSRF 200 and create 201. That new window's csrf count was 1, while the denied window stayed at 9. |
+
+The product Start control did not display "The basket change was not sent. Try again." after the CSRF denial. The click still sent no mutation. The denied Add and the denied reset did show "We could not confirm the latest basket update. Check your basket before trying the change again." There was no success toast and no automatic repeat. This run does not approve production rate limits.

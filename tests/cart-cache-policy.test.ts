@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import { createEvent } from "h3";
 
@@ -125,13 +125,7 @@ async function startBuiltServer(
 ): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
   const port = await freePort();
   let output = "";
-  const entryUrl = pathToFileURL(serverEntry).href;
-  // Nitro's chunk falls back to file:///_entry.js before index.mjs runs. Node 22 rejects that URL in createRequire.
-  const child = spawn(process.execPath, [
-    "--input-type=module",
-    "-e",
-    "globalThis._importMeta_={url:process.env.PHOENIX_BUILT_ENTRY,env:process.env}; await import(process.env.PHOENIX_BUILT_ENTRY);",
-  ], {
+  const child = spawn(process.execPath, [serverEntry], {
     cwd: root,
     env: {
       ...process.env,
@@ -143,7 +137,6 @@ async function startBuiltServer(
       NUXT_CART_CSRF_SECRET: secret,
       NUXT_CART_APP_CREDENTIAL: APP_CREDENTIAL,
       NUXT_CART_TRUSTED_INGRESS: "digitalocean",
-      PHOENIX_BUILT_ENTRY: entryUrl,
       ...extra,
     },
     stdio: ["ignore", "pipe", "pipe"],

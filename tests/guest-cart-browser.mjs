@@ -169,6 +169,7 @@ class Page {
         action: pending?.action,
         requestId: message.params.requestId,
         setCookieNames: names,
+        retryAfter: headerValue(message.params.response.headers, "retry-after"),
       });
     }
     if (message.method === "Fetch.requestPaused" && this.fetchHandler) {
@@ -283,6 +284,8 @@ class Page {
       optionIds,
       setCookieNames: entry.setCookieNames || [],
       action: entry.action || "",
+      retryAfter: entry.retryAfter || "",
+      hasCsrfToken: Object.prototype.hasOwnProperty.call(parsed, "csrf_token"),
     };
   }
 }
@@ -292,9 +295,17 @@ function cookieNames(headers = {}) {
   return [...String(raw).matchAll(/(?:^|[\n,])\s*([A-Za-z0-9_-]+)=/g)].map((match) => match[1]);
 }
 
-export async function launch() {
+function headerValue(headers, name) {
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (key.toLowerCase() === wanted) return String(value);
+  }
+  return "";
+}
+
+export async function launch(options = {}) {
   const profile = await mkdtemp(join(tmpdir(), "phoenix-guest-cart-"));
-  const port = 9333;
+  const port = options.port || 9333;
   const child = spawn(EDGE, [
     "--headless=new",
     `--user-data-dir=${profile}`,
