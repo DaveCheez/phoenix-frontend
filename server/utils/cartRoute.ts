@@ -42,6 +42,21 @@ export function configurationFailure(event: H3Event) {
   };
 }
 
+export function cartOriginPreview(event: H3Event): CartConfig | null {
+  const runtimeConfig = useRuntimeConfig(event);
+  const dev = import.meta.dev === true;
+  const origin = parseCartOrigin(runtimeConfig.cartOrigin, dev);
+  if (!origin) return null;
+  return {
+    secret: "",
+    origin: origin.origin,
+    host: origin.host,
+    dev,
+    appCredential: "",
+    trustedIngress: "",
+  };
+}
+
 export function beginCart(event: H3Event):
   | { ok: true; config: CartConfig }
   | { ok: false; body: ReturnType<typeof configurationFailure> } {

@@ -52,6 +52,7 @@ function controllerFor(state, fetch, extras = {}) {
     locksAvailable: () => true,
     lock: extras.lock || mutex(),
     schedule: extras.schedule,
+    notify: extras.notify,
     legacyPresent: () => false,
   });
 }
@@ -329,6 +330,37 @@ test("simulated client: clear sends one DELETE with an empty JSON body and CSRF"
   assert.equal(clear[0].headers["content-type"], "application/json");
   assert.equal(clear[0].headers["x-phoenix-csrf"], "csrf-clear");
   assert.equal(JSON.stringify(clear[0].body).includes("cart_id"), false);
+});
+
+test("simulated client: a denied CSRF preparation sends no mutation", async () => {
+  const state = readyState();
+  const selected = ["Enhanced"];
+  const calls = [];
+  let notified = 0;
+  let csrfToken = "cached-token";
+  const controller = controllerFor(state, async (path, options) => {
+    calls.push({ path, method: options.method || "GET", retry: options.retry, csrf: options.headers?.["x-phoenix-csrf"] });
+    if (path === "/api/cart/csrf") {
+      return {
+        status: 429,
+        _data: { success: false, code: "CART_RATE_LIMITED", error: "Cart access is temporarily limited." },
+      };
+    }
+    csrfToken = options.headers?.["x-phoenix-csrf"] || csrfToken;
+    return { status: 200, _data: { success: true, cart: basket(2, "20.00") } };
+  }, { notify: () => { notified += 1; } });
+  await assert.rejects(
+    controller.addToCart(3, 1, [5]),
+    (error) => error.cartCode === "CART_PREFLIGHT" && error.customerMessage === "The basket change was not sent. Try again.",
+  );
+  assert.equal(calls.filter((call) => call.path === "/api/cart/csrf").length, 1);
+  assert.equal(calls.filter((call) => call.path === "/api/cart/add").length, 0);
+  assert.equal(calls[0].retry, 0);
+  assert.equal(state.access, "ready");
+  assert.equal(state.pending, false);
+  assert.equal(notified, 0);
+  assert.deepEqual(selected, ["Enhanced"]);
+  assert.equal(csrfToken, "cached-token");
 });
 
 test("simulated client: raw fetch errors and secret strings are absent from logs", async () => {

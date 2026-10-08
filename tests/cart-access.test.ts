@@ -24,11 +24,17 @@ import {
   mutationOriginAllowed,
 } from "../server/utils/cartGuard.ts";
 import {
+  classifyBudgetResponse,
+  isBudgetOperation,
+  sendCartBudget,
+} from "../server/utils/cartBudget.ts";
+import {
   cartUpstream,
   classifyUpstream,
   credentialUpstreamAllowed,
   DEVELOPMENT_SHOPPER_ADDRESS,
   dispatchCartUpstream,
+  parseRetryAfterHeader,
   selectShopperAddress,
 } from "../server/utils/cartTransport.ts";
 
@@ -89,8 +95,20 @@ function issued(token = GUEST) {
   };
 }
 
+function allowedBudgetResponse() {
+  return new Response(JSON.stringify({ success: true, code: "CART_BUDGET_ALLOWED" }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 async function callRoute(
-  handler: (event: ReturnType<typeof createEvent>, routeConfig: CartConfig, django: DjangoCall) => Promise<unknown> | unknown,
+  handler: (
+    event: ReturnType<typeof createEvent>,
+    routeConfig: CartConfig,
+    django: DjangoCall,
+    transport: { baseUrl: string; fetchImpl?: typeof fetch },
+  ) => Promise<unknown> | unknown,
   input: {
     method?: string;
     path?: string;
@@ -98,15 +116,20 @@ async function callRoute(
     body?: unknown;
     django?: DjangoCall;
     routeConfig?: CartConfig;
+    budgetFetch?: typeof fetch;
   },
 ) {
   const django = input.django || (async () => {
     throw new Error("Django stub was not expected");
   });
+  const transport = {
+    baseUrl: "http://127.0.0.1:9/api",
+    fetchImpl: input.budgetFetch || (async () => allowedBudgetResponse()),
+  };
   let routeConfig = input.routeConfig || config;
   const server = createServer(async (req, res) => {
     const event = createEvent(req, res);
-    const payload = await handler(event, routeConfig, django);
+    const payload = await handler(event, routeConfig, django, transport);
     if (!res.writableEnded) {
       res.setHeader("content-type", "application/json; charset=utf-8");
       res.end(JSON.stringify(payload));
@@ -132,6 +155,7 @@ async function callRoute(
     return {
       status: response.status,
       cookies: response.headers.getSetCookie(),
+      retryAfter: response.headers.get("retry-after"),
       json: text ? JSON.parse(text) : null,
       text,
     };
@@ -493,21 +517,37 @@ test("a bootstrap token cannot be reused after a guest cookie exists", async () 
   assert.equal(result.status, 403);
 });
 
-test("CSRF retrieval does not issue a Django session", async () => {
+test("CSRF retrieval asks for a csrf budget and does not issue a Django session", async () => {
   let calls = 0;
-  const result = await callRoute(handleCsrf, {
-    headers: {
-      "x-phoenix-csrf-request": "1",
-      "sec-fetch-site": "same-origin",
+  const budgets: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
+  const result = await callRoute(
+    (event, routeConfig, _django, transport) => handleCsrf(event, routeConfig, transport),
+    {
+      headers: {
+        "x-phoenix-csrf-request": "1",
+        "sec-fetch-site": "same-origin",
+      },
+      django: async () => {
+        calls += 1;
+        throw new Error("CSRF must not call a guest cart route");
+      },
+      budgetFetch: async (url, init) => {
+        budgets.push({
+          url: String(url),
+          body: String(init?.body || ""),
+          headers: init?.headers as Record<string, string>,
+        });
+        return allowedBudgetResponse();
+      },
     },
-    django: async () => {
-      calls += 1;
-      throw new Error("CSRF must not call Django");
-    },
-  });
+  );
   assert.equal(calls, 0);
+  assert.equal(budgets.length, 1);
+  assert.equal(budgets[0].url.endsWith("/cart/budget/"), true);
+  assert.equal(budgets[0].body, JSON.stringify({ operation: "csrf" }));
   assert.equal(typeof result.json.csrf_token, "string");
   assert.equal(result.text.includes(GUEST), false);
+  assert.equal(result.retryAfter, null);
   assert.equal(result.cookies.some((cookie) => cookie.startsWith("phoenix_cart_bootstrap_dev=")), true);
 });
 
@@ -736,6 +776,7 @@ test("stub transport: application failure preserves cookies and guest 401 stays 
   }
 
   const limited = classifyUpstream(429, {
+    success: false,
     code: "CART_RATE_LIMITED",
     error: `budget ${APP}`,
   }, { appCredential: APP });
@@ -793,6 +834,493 @@ test("stub transport: application failure preserves cookies and guest 401 stays 
   assert.equal(recovered.status, 401);
   assert.equal(recovered.json.code, "CART_ACCESS_UNAVAILABLE");
   assert.equal(recovered.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), false);
+});
+
+function csrfHandler(
+  event: ReturnType<typeof createEvent>,
+  routeConfig: CartConfig,
+  _django: DjangoCall,
+  transport: { baseUrl: string; fetchImpl?: typeof fetch },
+) {
+  return handleCsrf(event, routeConfig, transport);
+}
+
+function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+test("stub budget: rejected CSRF metadata returns before any budget request", async () => {
+  let budgets = 0;
+  const result = await callRoute(csrfHandler, {
+    headers: { "x-phoenix-csrf-request": "1", "sec-fetch-site": "cross-site" },
+    budgetFetch: async () => {
+      budgets += 1;
+      return allowedBudgetResponse();
+    },
+  });
+  assert.equal(budgets, 0);
+  assert.equal(result.status, 403);
+  assert.equal(result.json.csrf_token, undefined);
+  assert.equal(result.cookies.length, 0);
+});
+
+test("stub budget: rejected reset checks return before any budget request", async () => {
+  let budgets = 0;
+  const denied = await callRoute(handleReset, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: { confirm: true },
+    budgetFetch: async () => {
+      budgets += 1;
+      return allowedBudgetResponse();
+    },
+  });
+  assert.equal(budgets, 0);
+  assert.equal(denied.status, 403);
+
+  const csrf = issueCsrfToken({ secret: SECRET, context: "guest", binding: GUEST });
+  const unconfirmed = await callRoute(handleReset, {
+    method: "POST",
+    headers: mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` }),
+    body: { confirm: false },
+    budgetFetch: async () => {
+      budgets += 1;
+      return allowedBudgetResponse();
+    },
+  });
+  assert.equal(budgets, 0);
+  assert.equal(unconfirmed.status, 400);
+});
+
+test("stub budget: CSRF allowance uses application headers and never a guest bearer", async () => {
+  const seen: Array<Record<string, string>> = [];
+  const event = rawEvent([
+    ["do-connecting-ip", ADDRESS],
+    ["cookie", `phoenix_guest_dev=${GUEST}`],
+    ["authorization", `Bearer ${GUEST}`],
+    ["x-phoenix-csrf", "browser-token"],
+  ]);
+  const decision = await sendCartBudget({
+    event,
+    config: { ...config, dev: false, trustedIngress: "digitalocean" },
+    operation: "csrf",
+    baseUrl: "http://127.0.0.1:9/api",
+    fetchImpl: async (url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      seen.push(headers);
+      assert.equal(String(url), "http://127.0.0.1:9/api/cart/budget/");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.body, JSON.stringify({ operation: "csrf" }));
+      assert.equal(init?.redirect, "manual");
+      assert.equal("retry" in (init || {}), false);
+      return allowedBudgetResponse();
+    },
+  });
+  assert.equal(decision.ok, true);
+  assert.deepEqual(Object.keys(seen[0]).sort(), [
+    "X-Phoenix-App-Credential",
+    "X-Phoenix-Shopper-Address",
+    "accept",
+    "content-type",
+  ]);
+  assert.equal(seen[0]["X-Phoenix-App-Credential"], APP);
+  assert.equal(seen[0]["X-Phoenix-Shopper-Address"], ADDRESS);
+  assert.equal(seen[0].authorization, undefined);
+
+  for (const cookie of [
+    `phoenix_guest_dev=${GUEST}`,
+    "phoenix_guest_dev=expired-token",
+    "phoenix_guest_dev=%%%",
+  ]) {
+    const upstream: Array<Record<string, string> | undefined> = [];
+    const result = await callRoute(csrfHandler, {
+      headers: {
+        "x-phoenix-csrf-request": "1",
+        "sec-fetch-site": "same-origin",
+        cookie,
+      },
+      budgetFetch: async (_url, init) => {
+        upstream.push(init?.headers as Record<string, string>);
+        return allowedBudgetResponse();
+      },
+    });
+    assert.equal(upstream.length, 1);
+    assert.equal(upstream[0]?.authorization, undefined);
+    assert.equal(upstream[0]?.cookie, undefined);
+    assert.equal(result.text.includes("expired-token"), false);
+  }
+});
+
+test("stub budget: CSRF denial or failure issues no token and no cookie", async () => {
+  let budgets = 0;
+  const denied = await callRoute(csrfHandler, {
+    headers: { "x-phoenix-csrf-request": "1", "sec-fetch-site": "same-origin" },
+    budgetFetch: async () => {
+      budgets += 1;
+      return jsonResponse(429, {
+        success: false,
+        code: "CART_RATE_LIMITED",
+        error: "Cart access is temporarily limited.",
+      }, { "retry-after": "12" });
+    },
+  });
+  assert.equal(budgets, 1);
+  assert.equal(denied.status, 429);
+  assert.equal(denied.json.code, "CART_RATE_LIMITED");
+  assert.equal(denied.json.csrf_token, undefined);
+  assert.equal(denied.retryAfter, "12");
+  assert.equal(denied.cookies.length, 0);
+
+  const failed = await callRoute(csrfHandler, {
+    headers: { "x-phoenix-csrf-request": "1", "sec-fetch-site": "same-origin" },
+    budgetFetch: async () => jsonResponse(401, {
+      success: false,
+      code: "CART_ACCESS_UNAVAILABLE",
+      error: `bearer ${GUEST}`,
+    }, { "retry-after": "12" }),
+  });
+  assert.equal(failed.status, 503);
+  assert.equal(failed.json.code, "CART_SERVICE_UNAVAILABLE");
+  assert.notEqual(failed.json.code, "CART_ACCESS_UNAVAILABLE");
+  assert.equal(failed.json.csrf_token, undefined);
+  assert.equal(failed.retryAfter, null);
+  assert.equal(failed.cookies.length, 0);
+  assert.equal(failed.text.includes(GUEST), false);
+});
+
+test("stub budget: reset denial skips the guest probe and leaves cookies unchanged", async () => {
+  const csrf = issueCsrfToken({ secret: SECRET, context: "guest", binding: GUEST });
+  let probes = 0;
+  let budgets = 0;
+  const denied = await callRoute(handleReset, {
+    method: "POST",
+    headers: mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` }),
+    body: { confirm: true },
+    django: async () => {
+      probes += 1;
+      throw new Error("guest probe was not allowed");
+    },
+    budgetFetch: async () => {
+      budgets += 1;
+      return jsonResponse(503, { success: false, code: "CART_TEMPORARILY_UNAVAILABLE" });
+    },
+  });
+  assert.equal(budgets, 1);
+  assert.equal(probes, 0);
+  assert.equal(denied.status, 503);
+  assert.equal(denied.json.code, "CART_TEMPORARILY_UNAVAILABLE");
+  assert.equal(denied.cookies.length, 0);
+});
+
+test("stub budget: allowed reset probes the guest cart only after allowance", async () => {
+  const csrf = issueCsrfToken({ secret: SECRET, context: "guest", binding: GUEST });
+  const order: string[] = [];
+  const result = await callRoute(handleReset, {
+    method: "POST",
+    headers: mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` }),
+    body: { confirm: true },
+    budgetFetch: async (_url, init) => {
+      order.push("budget");
+      assert.equal(init?.body, JSON.stringify({ operation: "reset" }));
+      const headers = init?.headers as Record<string, string>;
+      assert.equal(headers.authorization, undefined);
+      return allowedBudgetResponse();
+    },
+    django: async (input) => {
+      order.push(`probe:${input.path}`);
+      assert.equal(input.bearer, GUEST);
+      return {
+        ok: false,
+        status: 401,
+        code: "CART_ACCESS_UNAVAILABLE",
+        error: "Cart access is not available.",
+        category: "upstream",
+      };
+    },
+  });
+  assert.deepEqual(order, ["budget", "probe:cart/"]);
+  assert.equal(result.json.code, "CART_SESSION_RESET");
+  assert.equal(result.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), true);
+
+  const limited = await callRoute(handleReset, {
+    method: "POST",
+    headers: mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` }),
+    body: { confirm: true },
+    django: async () => ({
+      ok: false,
+      status: 429,
+      code: "CART_RATE_LIMITED",
+      error: "Cart access is temporarily limited.",
+      category: "upstream",
+      retryAfter: 20,
+    }),
+  });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.json.code, "CART_RATE_LIMITED");
+  assert.equal(limited.retryAfter, "20");
+  assert.equal(limited.cookies.length, 0);
+});
+
+test("stub budget: a budget-endpoint 401 never clears the guest cookie", async () => {
+  const csrf = issueCsrfToken({ secret: SECRET, context: "guest", binding: GUEST });
+  let probes = 0;
+  const result = await callRoute(handleReset, {
+    method: "POST",
+    headers: mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` }),
+    body: { confirm: true },
+    django: async () => {
+      probes += 1;
+      return {
+        ok: false,
+        status: 401,
+        code: "CART_ACCESS_UNAVAILABLE",
+        error: "Cart access is not available.",
+        category: "upstream",
+      };
+    },
+    budgetFetch: async () => jsonResponse(401, {
+      success: false,
+      code: "CART_ACCESS_UNAVAILABLE",
+    }),
+  });
+  assert.equal(probes, 0);
+  assert.equal(result.status, 503);
+  assert.equal(result.json.code, "CART_SERVICE_UNAVAILABLE");
+  assert.equal(result.cookies.length, 0);
+});
+
+test("stub budget: missing and malformed cookies still require reset allowance", async () => {
+  const bootstrap = issueCsrfToken({ secret: SECRET, context: "bootstrap", binding: BOOTSTRAP });
+  const headers = mutationHeaders(bootstrap, { cookie: `phoenix_cart_bootstrap_dev=${BOOTSTRAP}` });
+  let probes = 0;
+  const denied = await callRoute(handleReset, {
+    method: "POST",
+    headers,
+    body: { confirm: true },
+    django: async () => {
+      probes += 1;
+      throw new Error("missing cookie must not probe Django");
+    },
+    budgetFetch: async () => jsonResponse(429, {
+      success: false,
+      code: "CART_RATE_LIMITED",
+      error: "Cart access is temporarily limited.",
+    }),
+  });
+  assert.equal(probes, 0);
+  assert.equal(denied.status, 429);
+  assert.equal(denied.cookies.length, 0);
+
+  const allowed = await callRoute(handleReset, {
+    method: "POST",
+    headers,
+    body: { confirm: true },
+    django: async () => {
+      probes += 1;
+      throw new Error("missing cookie must not probe Django");
+    },
+  });
+  assert.equal(probes, 0);
+  assert.equal(allowed.json.code, "CART_SESSION_RESET");
+  assert.equal(allowed.cookies.some((cookie) => cookie.startsWith("phoenix_cart_bootstrap_dev=")), true);
+
+  const malformedHeaders = mutationHeaders(bootstrap, {
+    cookie: `phoenix_guest_dev=short; phoenix_cart_bootstrap_dev=${BOOTSTRAP}`,
+  });
+  const blocked = await callRoute(handleReset, {
+    method: "POST",
+    headers: malformedHeaders,
+    body: { confirm: true },
+    django: async () => {
+      probes += 1;
+      throw new Error("malformed cookie must not probe Django");
+    },
+    budgetFetch: async () => jsonResponse(503, { code: "CART_APPLICATION_REJECTED", error: APP }),
+  });
+  assert.equal(probes, 0);
+  assert.equal(blocked.status, 503);
+  assert.equal(blocked.json.code, "CART_SERVICE_UNAVAILABLE");
+  assert.equal(blocked.cookies.length, 0);
+  assert.equal(blocked.text.includes(APP), false);
+
+  const cleared = await callRoute(handleReset, {
+    method: "POST",
+    headers: malformedHeaders,
+    body: { confirm: true },
+    django: async () => {
+      probes += 1;
+      throw new Error("malformed cookie must not probe Django");
+    },
+  });
+  assert.equal(probes, 0);
+  assert.equal(cleared.json.code, "CART_SESSION_RESET");
+  assert.equal(cleared.cookies.some((cookie) => cookie.startsWith("phoenix_guest_dev=")), true);
+});
+
+test("stub budget: only the exact allowance continues, and one failure is not repeated", async () => {
+  assert.equal(isBudgetOperation("csrf"), true);
+  assert.equal(isBudgetOperation("reset"), true);
+  assert.equal(isBudgetOperation("start"), false);
+  const event = rawEvent([]);
+  let calls = 0;
+  const rejected = await sendCartBudget({
+    event,
+    config,
+    operation: "start" as "csrf",
+    baseUrl: "http://127.0.0.1:9/api",
+    fetchImpl: async () => {
+      calls += 1;
+      return allowedBudgetResponse();
+    },
+  });
+  assert.equal(calls, 0);
+  assert.equal(rejected.ok, false);
+
+  const responses = [
+    new Response(null, { status: 302, headers: { location: "https://evil.example/budget" } }),
+    null,
+    new Response("missing", { status: 404, headers: { "content-type": "text/plain" } }),
+    new Response("<html>no</html>", { status: 200, headers: { "content-type": "text/html" } }),
+    new Response("", { status: 200 }),
+    jsonResponse(201, { success: true, code: "CART_BUDGET_ALLOWED" }),
+    jsonResponse(200, { success: "true", code: "CART_BUDGET_ALLOWED" }),
+    jsonResponse(200, { success: true, code: "CART_BUDGET_ALLOWED", cart: { id: "nope" } }),
+    jsonResponse(200, { success: true }),
+    jsonResponse(401, { success: false, code: "CART_ACCESS_UNAVAILABLE" }),
+    jsonResponse(503, { success: false, code: "CART_APPLICATION_REJECTED", error: APP }),
+  ];
+  for (const response of responses) {
+    let attempts = 0;
+    const decision = await sendCartBudget({
+      event,
+      config,
+      operation: "reset",
+      baseUrl: "http://127.0.0.1:9/api",
+      fetchImpl: async () => {
+        attempts += 1;
+        if (!response) throw new Error("stub network failure");
+        return response;
+      },
+    });
+    assert.equal(attempts, 1);
+    assert.equal(decision.ok, false);
+    if (!decision.ok) {
+      assert.notEqual(decision.code, "CART_ACCESS_UNAVAILABLE");
+      assert.equal(JSON.stringify(decision).includes(APP), false);
+    }
+  }
+
+  const temporary = await sendCartBudget({
+    event,
+    config,
+    operation: "csrf",
+    baseUrl: "http://127.0.0.1:9/api",
+    fetchImpl: async () => jsonResponse(503, { code: "CART_TEMPORARILY_UNAVAILABLE" }),
+  });
+  assert.equal(temporary.ok, false);
+  if (!temporary.ok) assert.equal(temporary.code, "CART_TEMPORARILY_UNAVAILABLE");
+
+  const allowed = classifyBudgetResponse(200, { success: true, code: "CART_BUDGET_ALLOWED" }, true);
+  assert.equal(allowed.ok, true);
+  if (allowed.ok) assert.deepEqual(allowed.body, { success: true, code: "CART_BUDGET_ALLOWED" });
+});
+
+test("stub budget: Retry-After is forwarded only for a genuine rate limit", async () => {
+  for (const value of ["", "0", "-1", "+30", "1.5", "1e2", "Wed, 21 Oct 2015 07:28:00 GMT", "30\r\nSet-Cookie: a=b", "30, 40", "86401", "00030", " 30"]) {
+    assert.equal(parseRetryAfterHeader(value), null, value);
+  }
+  assert.equal(parseRetryAfterHeader("1"), 1);
+  assert.equal(parseRetryAfterHeader("30"), 30);
+  assert.equal(parseRetryAfterHeader("86400"), 86400);
+
+  const forwarded = await cartUpstream({
+    baseUrl: "http://127.0.0.1:9/api",
+    path: "cart/",
+    method: "GET",
+    bearer: GUEST,
+    appCredential: APP,
+    shopperAddress: ADDRESS,
+    fetchImpl: async () => jsonResponse(429, {
+      success: false,
+      code: "CART_RATE_LIMITED",
+      error: `wait ${APP}`,
+    }, { "retry-after": "45", "set-cookie": "upstream=1" }),
+  });
+  assert.equal(forwarded.ok, false);
+  if (!forwarded.ok) {
+    assert.equal(forwarded.retryAfter, 45);
+    assert.equal(forwarded.error, "Cart access is temporarily limited.");
+    assert.equal(JSON.stringify(forwarded).includes("set-cookie"), false);
+  }
+
+  const omitted = await cartUpstream({
+    baseUrl: "http://127.0.0.1:9/api",
+    path: "cart/",
+    method: "GET",
+    bearer: GUEST,
+    appCredential: APP,
+    shopperAddress: ADDRESS,
+    fetchImpl: async () => {
+      const headers = new Headers({ "content-type": "application/json" });
+      headers.append("retry-after", "30");
+      headers.append("retry-after", "40");
+      return new Response(JSON.stringify({
+        success: false,
+        code: "CART_RATE_LIMITED",
+      }), { status: 429, headers });
+    },
+  });
+  assert.equal(omitted.ok, false);
+  if (!omitted.ok) assert.equal(omitted.retryAfter, undefined);
+
+  const success = await cartUpstream({
+    baseUrl: "http://127.0.0.1:9/api",
+    path: "cart/",
+    method: "GET",
+    bearer: GUEST,
+    appCredential: APP,
+    shopperAddress: ADDRESS,
+    fetchImpl: async () => jsonResponse(200, { success: true, cart: cartBody }, { "retry-after": "30" }),
+  });
+  assert.equal(success.ok, true);
+  assert.equal("retryAfter" in success, false);
+
+  const csrf = issueCsrfToken({ secret: SECRET, context: "guest", binding: GUEST });
+  const headers = mutationHeaders(csrf, { cookie: `phoenix_guest_dev=${GUEST}` });
+  const read = await callRoute(handleGet, {
+    headers: { cookie: `phoenix_guest_dev=${GUEST}` },
+    django: async () => ({
+      ok: false,
+      status: 429,
+      code: "CART_RATE_LIMITED",
+      error: "Cart access is temporarily limited.",
+      category: "upstream",
+      retryAfter: 45,
+    }),
+  });
+  assert.equal(read.status, 429);
+  assert.equal(read.json.code, "CART_RATE_LIMITED");
+  assert.equal(read.retryAfter, "45");
+  assert.equal(read.cookies.length, 0);
+
+  const validation = await callRoute(handleAdd, {
+    method: "POST",
+    headers,
+    body: { product_id: 3, quantity: 1, options: [8] },
+    django: async () => ({
+      ok: false,
+      status: 400,
+      code: "INVALID_OPTION",
+      error: "Choose a valid option for this product.",
+      category: "upstream",
+      retryAfter: 45,
+    }),
+  });
+  assert.equal(validation.status, 400);
+  assert.equal(validation.retryAfter, null);
 });
 
 function fakeEvent(headers: Record<string, string>) {

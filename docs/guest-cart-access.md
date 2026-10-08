@@ -57,18 +57,94 @@ Django `503 CART_APPLICATION_REJECTED` becomes the existing safe
 `503 CART_SERVICE_UNAVAILABLE` response. It does not become
 `CART_ACCESS_UNAVAILABLE`, clear the guest cookie, or start a replacement.
 `401 CART_ACCESS_UNAVAILABLE` remains only the exact guest-access response
-from the authenticated Django path. A genuine `429 CART_RATE_LIMITED` stays
-429. This patch does not enforce a counter.
+from the authenticated Django path. A genuine `429 CART_RATE_LIMITED` stays 429. Nuxt forwards `Retry-After` only
+when that response carries one delay-seconds value from 1 to 86400. The upper
+bound is the current supported counter window. It is not a new quota. Missing,
+joined, signed, fractional, date, or out-of-range values are omitted, and the
+429 denial remains. The value is read from the upstream response header. It is
+not taken from the browser or from a JSON field. Nuxt does not enable a
+counter, and this frontend does not add a countdown or an automatic retry.
 
-## Deferred request accounting
+## Shared CSRF and reset budget
 
-`GET /api/cart/csrf` and `POST /api/cart/reset` do not call a Django budget
-endpoint yet. That fixed-scope interface is still pending. When it is added,
-CSRF uses its existing host, Fetch Metadata and Origin-Referer checks before
-the budget call, and it cannot require the CSRF token it is about to issue.
-Reset passes its existing mutation guards before the budget call. Actual
-exhaustion is 429. Unavailable accounting is a controlled service failure.
-Neither path clears identity or replays a mutation.
+`GET /api/cart/csrf` and `POST /api/cart/reset` each make one application-only
+`POST cart/budget/` before they issue a token or change a cookie. The browser
+cannot choose the operation. CSRF sends `{"operation":"csrf"}`. Reset sends
+`{"operation":"reset"}`. There is no browser route at `/api/cart/budget`.
+
+The budget request uses the existing private application credential and the
+server-selected shopper address. It sends `Accept` and `Content-Type` of
+`application/json`. It does not send `Authorization`, `Cookie`, a guest token,
+a CSRF token, a cart id, or a limit. Nuxt calls the endpoint whether or not
+backend enforcement is enabled. There is no frontend bypass, permission cache,
+or success fallback.
+
+Continuation requires HTTP 200 and an object whose fields are exactly
+`success: true` and `code: "CART_BUDGET_ALLOWED"`. A cart payload is not an
+allowance. Any other 2xx, redirect, timeout, network error, malformed body, or
+unexpected status, including a budget-endpoint 401, is a safe service failure.
+That 401 does not mean the guest session can be reset. A later guest-cart
+probe can still return the exact `401 CART_ACCESS_UNAVAILABLE`, and that probe
+keeps its existing recovery meaning.
+
+CSRF order:
+
+1. Trusted host and the existing Fetch Metadata or Origin-Referer checks.
+2. Private application configuration and shopper-address selection.
+3. One csrf budget call.
+4. Bootstrap-cookie creation or reuse, then CSRF issuance, only after allowance.
+
+The budget call cannot require the token it is about to issue. A denial writes
+no cookie and does not probe or start a guest cart.
+
+Reset keeps its origin, JSON, explicit-confirm and session-bound CSRF checks,
+then makes one reset budget call. Only an allowance continues. A valid cart is
+preserved. A valid session with a missing cart is preserved and can be
+replaced later. A definitive guest `401 CART_ACCESS_UNAVAILABLE` is the
+existing explicit local reset. A malformed local cookie is the existing
+explicit reset. Those local cookie removals also wait for budget allowance,
+including when no guest probe would run. A denied or unavailable budget stops
+before the probe and does not create a session or cart.
+
+A genuine `429 CART_RATE_LIMITED` from the budget call, from an ordinary cart
+read or mutation, or from the later reset guest probe keeps the guest cookie
+and can include the validated `Retry-After` header. `503` budget failures also
+keep the cookie. Neither failure replays start, add, update, remove, clear,
+reset or replacement.
+
+The budget decision is used for that request only. It is not cached, prefetched
+or shared across tabs. A failed CSRF preparation clears the in-memory token and
+stops the basket change before it is sent. That is a preparation failure, not
+an unconfirmed write.
+
+Each CSRF request adds one Django `POST cart/budget/`. Each reset adds one
+reset budget POST, plus the existing guest probe when a present valid cookie
+still needs one. Ordinary cart reads and mutations do not add a second budget
+precheck. Their Django routes already account for those requests.
+
+This adds a Django availability and latency dependency to CSRF and reset. If
+the budget POST fails, Nuxt does not issue a token or change cookies, even
+when the guest session would otherwise have been usable. The counts below are
+derived from this source. They are not measured production performance.
+
+| Shopper action | Browser | Django |
+| --- | --- | --- |
+| Read without a guest cookie | 1 `GET /api/cart` | none |
+| Refresh with a guest cookie | 1 `GET /api/cart` | 1 `GET cart/` |
+| Start | 1 CSRF GET + 1 create POST | 1 csrf budget POST + 1 `POST cart/create/` |
+| Add | 1 CSRF GET + 1 add POST | 1 csrf budget POST + 1 `POST cart/add/` |
+| Plus or minus | 1 CSRF GET + 1 cart GET + 1 update POST | 1 csrf budget POST + 1 `GET cart/` + 1 `PATCH cart/update/` |
+| Reset with a valid guest cookie | 1 CSRF GET + 1 reset POST | 1 csrf budget POST + 1 reset budget POST + 1 guest `GET cart/` |
+| Reset with no cookie, or a malformed cookie | 1 CSRF GET + 1 reset POST | 1 csrf budget POST + 1 reset budget POST, and no guest probe |
+
+The cart page also reads from the navbar, so opening `/cart` can be two browser
+reads. Those reads do not add budget calls.
+
+Production still needs the private application credential, an approved origin,
+and a verified `do-connecting-ip` ingress before `digitalocean` is enabled.
+This change does not enable checkout, production rate limits, or counter
+enforcement. Backend enforcement remains a separate configuration. The local
+test command uses stubs and does not call the public site.
 
 ## Cookies and CSRF
 
@@ -87,11 +163,13 @@ memory. Ordinary cart reads and mutations do not rewrite the guest cookie.
   `{"action":"replace_missing"}`.
 - `POST /api/cart/add`, `POST /api/cart/update`, `POST /api/cart/remove` and
   `DELETE /api/cart/clear` forward allowlisted fields only.
-- `POST /api/cart/reset` with `{"confirm":true}` is a local browser reset. It
-  does not delete a Django cart. A still-valid session is reloaded. A missing
-  cart keeps the credential so the shopper can open an empty basket. Only a
-  definitive unavailable credential, or a malformed local cookie, is forgotten.
-  Network failures, rate limits and server errors keep the cookie.
+- `POST /api/cart/reset` with `{"confirm":true}` is a local browser reset after
+  its reset budget allowance. It does not delete a Django cart. A still-valid
+  session is reloaded. A missing cart keeps the credential so the shopper can
+  open an empty basket. Only a definitive unavailable credential, or a
+  malformed local cookie, is forgotten, and both of those local removals wait
+  for the same allowance. Network failures, rate limits and server errors keep
+  the cookie.
 
 A refresh shows the basket returned by that read. It does not prove that a
 timed-out request was cancelled, and it does not repeat the failed change.

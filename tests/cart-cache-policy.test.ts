@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createEvent } from "h3";
 
@@ -125,7 +125,13 @@ async function startBuiltServer(
 ): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
   const port = await freePort();
   let output = "";
-  const child = spawn(process.execPath, [serverEntry], {
+  const entryUrl = pathToFileURL(serverEntry).href;
+  // Nitro's chunk falls back to file:///_entry.js before index.mjs runs. Node 22 rejects that URL in createRequire.
+  const child = spawn(process.execPath, [
+    "--input-type=module",
+    "-e",
+    "globalThis._importMeta_={url:process.env.PHOENIX_BUILT_ENTRY,env:process.env}; await import(process.env.PHOENIX_BUILT_ENTRY);",
+  ], {
     cwd: root,
     env: {
       ...process.env,
@@ -137,6 +143,7 @@ async function startBuiltServer(
       NUXT_CART_CSRF_SECRET: secret,
       NUXT_CART_APP_CREDENTIAL: APP_CREDENTIAL,
       NUXT_CART_TRUSTED_INGRESS: "digitalocean",
+      PHOENIX_BUILT_ENTRY: entryUrl,
       ...extra,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -330,6 +337,87 @@ test("built nitro: production selects one connecting address and fails closed wi
     assertCartPolicy(response.headers);
   } finally {
     await closed.stop();
+    await new Promise<void>((resolve) => stub.close(resolve));
+  }
+});
+
+test("built nitro: a stub upstream 429 keeps Retry-After on the Nuxt response", { timeout: 30000 }, async () => {
+  const seen: string[] = [];
+  const stub = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      seen.push(`${req.method} ${req.url}`);
+      const delay = req.url === "/api/cart/" ? "45" : "30";
+      res.writeHead(429, {
+        "content-type": "application/json",
+        "retry-after": delay,
+        "set-cookie": "upstream=1",
+      });
+      res.end(JSON.stringify({
+        success: false,
+        code: "CART_RATE_LIMITED",
+        error: `wait ${APP_CREDENTIAL}`,
+      }));
+    });
+  });
+  await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
+  const stubAddress = stub.address();
+  if (!stubAddress || typeof stubAddress === "string") throw new Error("No stub port");
+  const server = await startBuiltServer(VALID_SECRET, {
+    NUXT_DJANGO_API_BASE: `http://127.0.0.1:${stubAddress.port}/api`,
+  });
+  try {
+    const cart = await fetch(`${server.baseUrl}/api/cart`, {
+      headers: {
+        cookie: `__Host-phoenix_guest=${BUILT_GUEST}`,
+        "do-connecting-ip": BUILT_ADDRESS,
+      },
+      redirect: "manual",
+    });
+    const cartText = await cart.text();
+    assert.equal(cart.status, 429);
+    assert.equal(JSON.parse(cartText).code, "CART_RATE_LIMITED");
+    assert.equal(cart.headers.get("retry-after"), "45");
+    assert.equal(cart.headers.get("set-cookie"), null);
+    assert.equal(cartText.includes(APP_CREDENTIAL), false);
+    assertCartPolicy(cart.headers);
+
+    const csrf = await new Promise<{ status: number; retryAfter: string | string[] | undefined; setCookie: string | string[] | undefined; text: string }>((resolve, reject) => {
+      const outgoing = httpRequest({
+        host: "127.0.0.1",
+        port: new URL(server.baseUrl).port,
+        path: "/api/cart/csrf",
+        method: "GET",
+        headers: {
+          host: "cart-cache-test.invalid",
+          origin: TEST_ORIGIN,
+          "do-connecting-ip": BUILT_ADDRESS,
+          "x-phoenix-csrf-request": "1",
+          "sec-fetch-site": "same-origin",
+        },
+      }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => resolve({
+          status: response.statusCode || 0,
+          retryAfter: response.headers["retry-after"],
+          setCookie: response.headers["set-cookie"],
+          text: Buffer.concat(chunks).toString("utf8"),
+        }));
+      });
+      outgoing.on("error", reject);
+      outgoing.end();
+    });
+    assert.equal(csrf.status, 429);
+    assert.equal(JSON.parse(csrf.text).csrf_token, undefined);
+    assert.equal(JSON.parse(csrf.text).code, "CART_RATE_LIMITED");
+    assert.equal(csrf.retryAfter, "30");
+    assert.equal(csrf.setCookie, undefined);
+    assert.equal(csrf.text.includes(APP_CREDENTIAL), false);
+    assert.deepEqual(seen, ["GET /api/cart/", "POST /api/cart/budget/"]);
+  } finally {
+    await server.stop();
     await new Promise<void>((resolve) => stub.close(resolve));
   }
 });

@@ -1,6 +1,7 @@
 import type { H3Event } from "h3";
-import { readBody, setResponseStatus } from "h3";
+import { readBody, setResponseHeader, setResponseStatus } from "h3";
 
+import { sendCartBudget, type BudgetTransport } from "./cartBudget";
 import { logCartEvent, type CartConfig } from "./cartConfig";
 import { issueCsrfToken } from "./cartCsrf";
 import {
@@ -36,8 +37,12 @@ export function cartFailure(
   status: number,
   code: string,
   error: string,
+  retryAfter?: number,
 ) {
   setResponseStatus(event, status);
+  if (status === 429 && code === "CART_RATE_LIMITED" && retryAfter != null) {
+    setResponseHeader(event, "retry-after", String(retryAfter));
+  }
   return { success: false, code, error };
 }
 
@@ -51,7 +56,7 @@ export function guardFailure(event: H3Event) {
 }
 
 export function browserCartResult(event: H3Event, result: UpstreamResult) {
-  if (!result.ok) return cartFailure(event, result.status, result.code, result.error);
+  if (!result.ok) return cartFailure(event, result.status, result.code, result.error, result.retryAfter);
   const cart = publicCart(result.body.cart);
   if (!cart) {
     logCartEvent("protocol", result.status);
@@ -70,8 +75,22 @@ function sessionRequired(event: H3Event, message: string) {
   return cartFailure(event, 401, "CART_SESSION_REQUIRED", message);
 }
 
-export function handleCsrf(event: H3Event, config: CartConfig) {
+export async function handleCsrf(
+  event: H3Event,
+  config: CartConfig,
+  transport: BudgetTransport,
+) {
   if (!csrfReadAllowed(event, config)) return guardFailure(event);
+  const decision = await sendCartBudget({
+    event,
+    config,
+    operation: "csrf",
+    baseUrl: transport.baseUrl,
+    fetchImpl: transport.fetchImpl,
+  });
+  if (!decision.ok) {
+    return cartFailure(event, decision.status, decision.code, decision.error, decision.retryAfter);
+  }
   const guest = readGuestCookie(cookieHeader(event), config.dev);
   const binding = guest.status === "present"
     ? { context: "guest" as const, value: guest.value }
@@ -134,7 +153,7 @@ export async function handleCreate(
       body: { action: "start" },
       bearer: guest.status === "present" ? guest.value : undefined,
     });
-    if (!result.ok) return cartFailure(event, result.status, result.code, result.error);
+    if (!result.ok) return cartFailure(event, result.status, result.code, result.error, result.retryAfter);
     if (guest.status === "absent") {
       const issued = validateIssuance(result.body);
       if (!issued.ok) {
@@ -253,6 +272,7 @@ export async function handleReset(
   event: H3Event,
   config: CartConfig,
   django: DjangoCall,
+  transport: BudgetTransport,
 ) {
   const guest = readGuestCookie(cookieHeader(event), config.dev);
   const context = guest.status === "present" ? "guest" : "bootstrap";
@@ -260,6 +280,16 @@ export async function handleReset(
   const body = await readBody<Record<string, unknown>>(event).catch(() => null);
   if (body?.confirm !== true) {
     return cartFailure(event, 400, "CART_REQUEST_REJECTED", "The basket request was rejected.");
+  }
+  const decision = await sendCartBudget({
+    event,
+    config,
+    operation: "reset",
+    baseUrl: transport.baseUrl,
+    fetchImpl: transport.fetchImpl,
+  });
+  if (!decision.ok) {
+    return cartFailure(event, decision.status, decision.code, decision.error, decision.retryAfter);
   }
   if (guest.status === "absent") {
     clearBootstrapCookie(event, config);
@@ -290,6 +320,9 @@ export async function handleReset(
     clearBootstrapCookie(event, config);
     setResponseStatus(event, 200);
     return { success: true, code: "CART_SESSION_RESET" };
+  }
+  if (result.status === 429 && result.code === "CART_RATE_LIMITED") {
+    return cartFailure(event, 429, result.code, result.error, result.retryAfter);
   }
   return cartFailure(
     event,

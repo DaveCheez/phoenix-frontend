@@ -22,7 +22,10 @@ export const SAFE_UPSTREAM_CODES = new Set([
 
 export type UpstreamResult =
   | { ok: true; status: number; body: Record<string, unknown> }
-  | { ok: false; status: number; code: string; error: string; category: string };
+  | { ok: false; status: number; code: string; error: string; category: string; retryAfter?: number };
+
+export const RATE_LIMITED_ERROR = "Cart access is temporarily limited.";
+export const MAX_RETRY_AFTER_SECONDS = 86_400;
 
 const GENERIC = {
   status: 503,
@@ -118,12 +121,12 @@ export function classifyUpstream(
     if (status === 503 && code === "CART_APPLICATION_REJECTED") {
       return { ok: false, ...GENERIC, category: "application" };
     }
-    if (status === 429 && code === "CART_RATE_LIMITED") {
+    if (status === 429 && code === "CART_RATE_LIMITED" && body.success === false) {
       return {
         ok: false,
         status: 429,
         code: "CART_RATE_LIMITED",
-        error: GENERIC.error,
+        error: RATE_LIMITED_ERROR,
         category: "upstream",
       };
     }
@@ -157,7 +160,28 @@ export function classifyUpstream(
   return { ok: false, ...GENERIC, category: "unexpected" };
 }
 
-export async function cartUpstream(input: {
+export function parseRetryAfterHeader(value: string | null | undefined): number | null {
+  if (typeof value !== "string") return null;
+  if (value.length < 1 || value.length > 5) return null;
+  if (!/^[0-9]+$/.test(value)) return null;
+  const seconds = Number(value);
+  if (!Number.isInteger(seconds) || String(seconds) !== value) return null;
+  if (seconds < 1 || seconds > MAX_RETRY_AFTER_SECONDS) return null;
+  return seconds;
+}
+
+export function withRetryAfter(result: UpstreamResult, header: string | null): UpstreamResult {
+  if (result.ok || result.status !== 429 || result.code !== "CART_RATE_LIMITED") return result;
+  const retryAfter = parseRetryAfterHeader(header);
+  if (retryAfter == null) return result;
+  return { ...result, retryAfter };
+}
+
+export type ProtectedRead =
+  | { kind: "configuration" | "network" | "redirect" }
+  | { kind: "response"; status: number; payload: unknown; parsed: boolean; retryAfterHeader: string | null };
+
+export async function readProtectedUpstream(input: {
   baseUrl: string;
   path: string;
   method: string;
@@ -166,13 +190,13 @@ export async function cartUpstream(input: {
   appCredential: string;
   shopperAddress: string;
   fetchImpl?: typeof fetch;
-}): Promise<UpstreamResult> {
+}): Promise<ProtectedRead> {
   if (
     !isAppCredential(input.appCredential) ||
     !input.shopperAddress ||
     !credentialUpstreamAllowed(input.baseUrl)
   ) {
-    return { ok: false, ...CONFIGURATION, category: "configuration" };
+    return { kind: "configuration" };
   }
 
   const fetchImpl = input.fetchImpl || fetch;
@@ -183,11 +207,6 @@ export async function cartUpstream(input: {
     shopperAddress: input.shopperAddress,
   });
   if (input.body) headers["content-type"] = "application/json";
-  const secrets = {
-    bearer: input.bearer,
-    appCredential: input.appCredential,
-    shopperAddress: input.shopperAddress,
-  };
 
   let response: Response;
   try {
@@ -199,21 +218,54 @@ export async function cartUpstream(input: {
       signal: AbortSignal.timeout(15_000),
     });
   } catch {
-    return { ok: false, ...GENERIC, category: "network" };
+    return { kind: "network" };
   }
 
-  if (response.status >= 300 && response.status < 400) {
-    return { ok: false, ...GENERIC, category: "redirect" };
-  }
-
-  let payload: unknown = null;
+  if (response.status >= 300 && response.status < 400) return { kind: "redirect" };
+  const retryAfterHeader = response.headers.get("retry-after");
   try {
     const text = await response.text();
-    payload = text ? JSON.parse(text) : null;
+    return {
+      kind: "response",
+      status: response.status,
+      payload: text ? JSON.parse(text) : null,
+      parsed: true,
+      retryAfterHeader,
+    };
   } catch {
-    return classifyUpstream(response.status, null, secrets);
+    return {
+      kind: "response",
+      status: response.status,
+      payload: null,
+      parsed: false,
+      retryAfterHeader,
+    };
   }
-  return classifyUpstream(response.status, payload, secrets);
+}
+
+export async function cartUpstream(input: {
+  baseUrl: string;
+  path: string;
+  method: string;
+  body?: Record<string, unknown>;
+  bearer?: string;
+  appCredential: string;
+  shopperAddress: string;
+  fetchImpl?: typeof fetch;
+}): Promise<UpstreamResult> {
+  const read = await readProtectedUpstream(input);
+  if (read.kind === "configuration") return { ok: false, ...CONFIGURATION, category: "configuration" };
+  if (read.kind === "network") return { ok: false, ...GENERIC, category: "network" };
+  if (read.kind === "redirect") return { ok: false, ...GENERIC, category: "redirect" };
+  const secrets = {
+    bearer: input.bearer,
+    appCredential: input.appCredential,
+    shopperAddress: input.shopperAddress,
+  };
+  const classified = read.parsed
+    ? classifyUpstream(read.status, read.payload, secrets)
+    : classifyUpstream(read.status, null, secrets);
+  return withRetryAfter(classified, read.retryAfterHeader);
 }
 
 export async function dispatchCartUpstream(
