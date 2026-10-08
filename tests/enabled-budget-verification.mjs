@@ -53,6 +53,8 @@ const state = {
   django: null,
   nuxt: null,
   browser: null,
+  owned: [],
+  results: [],
   djangoLines: [],
 };
 
@@ -129,6 +131,20 @@ function assertLocal(url) {
   if (parsed.port === "3000" || parsed.port === "8000") {
     throw new Error("Refusing the normal local server ports.");
   }
+}
+
+function ownProcess(name, child, port) {
+  const record = { name, child, pid: child.pid, port, stopping: false, exitCode: null };
+  child.once("exit", (code) => {
+    record.exitCode = code;
+  });
+  state.owned.push(record);
+  return record;
+}
+
+function portIsListening(text, port) {
+  const pattern = new RegExp(`(?:127\\.0\\.0\\.1|\\[::1\\]|0\\.0\\.0\\.0):${port}(?:\\s|$)`);
+  return text.split(/\r?\n/).some((line) => pattern.test(line) && line.toUpperCase().includes("LISTENING"));
 }
 
 function attach(child, sink) {
@@ -444,6 +460,7 @@ async function main() {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
+  ownProcess("django", state.django, djangoPort);
   attach(state.django, state.djangoLines);
   try {
     await waitUntil(async () => {
@@ -482,13 +499,14 @@ async function main() {
     NUXT_TELEMETRY_DISABLED: "1",
   };
   delete nuxtEnv.NUXT_IGNORE_LOCK;
-  state.nuxt = spawn("npm", ["run", "dev", "--", "--host", HOST, "--port", String(nuxtPort)], {
+  const nuxi = join(state.workspace, "node_modules", "@nuxt", "cli", "bin", "nuxi.mjs");
+  state.nuxt = spawn(process.execPath, [nuxi, "dev", "--host", HOST, "--port", String(nuxtPort)], {
     cwd: state.workspace,
     env: nuxtEnv,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
-    shell: true,
   });
+  ownProcess("nuxt", state.nuxt, nuxtPort);
   const nuxtLogs = [];
   attach(state.nuxt, nuxtLogs);
   await waitUntil(async () => {
@@ -502,6 +520,7 @@ async function main() {
   console.log("nuxt-ready");
 
   state.browser = await launch({ port: edgePort });
+  if (state.browser.child) ownProcess("edge", state.browser.child, edgePort);
   const browserVersion = await state.browser.version();
   const commits = {
     frontend: (await run("git", ["rev-parse", "HEAD"], { cwd: FRONTEND })).stdout.trim(),
@@ -564,6 +583,7 @@ async function main() {
     try {
       await page.open(`${origin}/product/${SLUG}`);
       await waitUntil(async () => (await page.text()).includes("Start a new basket") || null, 20000, "start control");
+      await page.eval(`(() => { window.__phoenixClickErrors = []; window.addEventListener("unhandledrejection", (event) => { window.__phoenixClickErrors.push(String(event.reason?.message || "rejection")); }); window.addEventListener("error", (event) => { window.__phoenixClickErrors.push(String(event.message || "error")); }); return true; })()`);
       const first = await page.eval(`fetch("/api/cart/csrf", { headers: { accept: "application/json", "x-phoenix-csrf-request": "1" } }).then((response) => response.status)`, true);
       const permitted = [{ label: "browser-csrf-allowance", status: first }];
       const limit = POLICIES.CART_FRONTEND_RATE_LIMIT_POLICIES.csrf[0].limit;
@@ -575,6 +595,7 @@ async function main() {
       const before = await snapshot();
       const csrfRow = counterRows(before).find((row) => row.scope === "csrf");
       const cookieBefore = await cookieProof(page, origin);
+      if (!(await page.clickLabel("Enhanced"))) throw new Error("Enhanced could not be selected");
       const mark = Date.now();
       const clicked = await page.clickButton("Start a new basket");
       await waitUntil(async () => cartRows(page, mark).some((entry) => entry.path === "/api/cart/csrf" && entry.status === 429) || null, 15000, "csrf denial");
@@ -585,6 +606,9 @@ async function main() {
       const after = await snapshot();
       const cookieAfter = await cookieProof(page, origin);
       const text = await page.text();
+      const selected = await page.eval(`(() => [...document.querySelectorAll("label")].filter((label) => label.querySelector("input")?.checked).map((label) => (label.innerText || "").trim()))()`);
+      const startDisabled = await page.eval(`(() => { const button = [...document.querySelectorAll("button")].find((element) => (element.innerText || "").includes("Start a new basket")); return !button || button.disabled; })()`);
+      const clickErrors = await page.eval(`window.__phoenixClickErrors || []`);
       const mutations = rows.filter((entry) => ["/api/cart/create", "/api/cart/add", "/api/cart/update", "/api/cart/reset"].includes(entry.path));
       const passed = clicked
         && permitted.length === limit
@@ -597,7 +621,12 @@ async function main() {
         && mutations.length === 0
         && cookieBefore.proof === cookieAfter.proof
         && before.carts === after.carts
-        && before.sessions === after.sessions;
+        && before.sessions === after.sessions
+        && text.includes(PREFLIGHT)
+        && !text.includes("added to your cart")
+        && Array.isArray(selected) && selected.some((label) => label.includes("Enhanced"))
+        && startDisabled === false
+        && Array.isArray(clickErrors) && clickErrors.length === 0;
       const quietFrom = Date.now();
       const windowEnd = Date.parse(csrfRow?.window_end || "");
       const expiresAt = Date.parse(csrfRow?.expires_at || "");
@@ -616,9 +645,13 @@ async function main() {
       const recoveryCreate = recoveryRows.find((entry) => entry.path === "/api/cart/create" && entry.status === 201);
       const recovered = await snapshot();
       const recoveredCsrf = counterRows(recovered).filter((row) => row.scope === "csrf");
+      const recoveredText = await page.text();
+      const recoveredSelected = await page.eval(`(() => [...document.querySelectorAll("label")].filter((label) => label.querySelector("input")?.checked).map((label) => (label.innerText || "").trim()))()`);
+      const recoveryAdds = recoveryRows.filter((entry) => entry.path === "/api/cart/add");
+      const messageCleared = !recoveredText.includes(PREFLIGHT);
       results.push({
         id,
-        status: passed && duringWait.length === 0 && recoveredClick && recoveryCsrf && recoveryCreate ? "PASS" : "FAIL",
+        status: passed && duringWait.length === 0 && recoveredClick && recoveryCsrf && recoveryCreate && messageCleared && recoveryAdds.length === 0 && Array.isArray(recoveredSelected) && recoveredSelected.some((label) => label.includes("Enhanced")) ? "PASS" : "FAIL",
         permitted: permitted.map((entry) => ({ label: entry.label, status: entry.status, code: entry.code || "CART_BUDGET_ALLOWED" })),
         denial: denial ? { method: denial.method, path: denial.path, status: denial.status, retryAfter: denial.retryAfter, setCookieNames: denial.setCookieNames, code: denialFacts?.code || "", hasCsrfToken: denialFacts?.hasCsrfToken === true, limitedError: denialFacts?.limitedError === true } : null,
         mutations: safeRows(mutations),
@@ -629,6 +662,10 @@ async function main() {
         sessionsBefore: before.sessions,
         sessionsAfter: after.sessions,
         showedPreflight: text.includes(PREFLIGHT),
+        selectionRetained: Array.isArray(selected) && selected.some((label) => label.includes("Enhanced")),
+        startEnabled: startDisabled === false,
+        clickErrors,
+        messageCleared,
         automaticReplayDuringWait: duringWait.length,
         recovery: safeRows(recoveryRows.filter((entry) => entry.path.startsWith("/api/cart"))),
         csrfCountersAfterRecovery: recoveredCsrf,
@@ -829,6 +866,7 @@ async function main() {
     migrationApplied: String(inspected.migrations || "").includes("0006_frontend_budget_scopes"),
     results,
   };
+  state.results = results;
   console.log(JSON.stringify(summary, null, 2));
 }
 
@@ -839,22 +877,49 @@ async function removeWorkspace(dir) {
   await rm(dir, { recursive: true, force: true });
 }
 
-async function cleanup() {
-  if (state.browser) await Promise.race([state.browser.close().catch(() => {}), sleep(8000)]);
-  for (const child of [state.nuxt, state.django]) {
-    if (!child || child.exitCode != null) continue;
-    child.kill();
-    await Promise.race([
-      new Promise((resolve) => child.once("exit", resolve)),
-      sleep(5000),
-    ]);
+async function stopOwned(record) {
+  if (!record?.pid || record.port === 3000 || record.port === 8000) {
+    return { name: record?.name || "unknown", stopped: false, portFree: false };
   }
-  if (state.container) await run("docker", ["rm", "-f", "-v", state.container]);
-  if (state.workspace) await Promise.race([removeWorkspace(state.workspace).catch(() => {}), sleep(20000)]);
+  record.stopping = true;
+  if (record.exitCode == null) {
+    await run("taskkill", ["/PID", String(record.pid), "/T", "/F"]);
+  }
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && record.exitCode == null) await sleep(200);
+  const listeners = await run("netstat", ["-ano"]);
+  return {
+    name: record.name,
+    port: record.port,
+    pid: record.pid,
+    exitCode: record.exitCode,
+    portFree: !portIsListening(listeners.stdout, record.port),
+    intentionalStop: true,
+  };
+}
+
+async function cleanup() {
+  const shutdown = [];
+  if (state.browser) await state.browser.close().catch(() => {});
+  for (const record of state.owned) shutdown.push(await stopOwned(record));
+  if (state.container) {
+    await run("docker", ["rm", "-f", "-v", state.container]);
+    const left = await run("docker", ["ps", "-aq", "--filter", `name=^${state.container}$`]);
+    shutdown.push({ name: "postgres", containerRemoved: left.stdout.trim() === "" });
+  }
+  if (state.workspace) {
+    try {
+      await removeWorkspace(state.workspace);
+      shutdown.push({ name: "workspace", removed: true });
+    } catch {
+      shutdown.push({ name: "workspace", removed: false });
+    }
+  }
   if (state.media && state.media.includes("phoenix-vanz-pgtest-media-")) {
     await rm(state.media, { recursive: true, force: true }).catch(() => {});
   }
   if (state.envFile) await rm(state.envFile, { force: true }).catch(() => {});
+  return shutdown;
 }
 
 if (!ENABLED) {
@@ -862,12 +927,16 @@ if (!ENABLED) {
   process.exit(2);
 }
 
+let failed = false;
 try {
   await main();
+  failed = state.results.some((result) => result.status === "FAIL");
 } catch (error) {
+  failed = true;
   console.error(redact(error instanceof Error ? error.stack || error.message : error));
-  process.exitCode = 1;
 } finally {
-  await cleanup();
-  process.exit(process.exitCode || 0);
+  const shutdown = await cleanup();
+  const shutdownFailed = shutdown.some((item) => item.portFree === false || item.containerRemoved === false);
+  console.log(JSON.stringify({ shutdown }, null, 2));
+  process.exit(failed || shutdownFailed ? 1 : 0);
 }

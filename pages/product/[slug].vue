@@ -9,6 +9,7 @@ import "swiper/css/navigation";
 import ProductOptions from "@/components/ProductOptions.vue";
 import logoUrl from "~/assets/images/logo.png";
 import { logCartFailure } from "~/utils/cartClient";
+import { runProductRecovery } from "~/utils/productRecovery";
 
 const route = useRoute();
 const slug = computed(() => String(route.params.slug || ""));
@@ -49,6 +50,7 @@ const hasReceivedOptionState = ref(false);
 const activeTab = ref("description");
 const galleryOpen = ref(false);
 const isAddingToCart = ref(false);
+const recoveryFeedback = ref("");
 
 const {
   access,
@@ -231,6 +233,13 @@ watch(
   },
 );
 
+const recoverFromNotice = async () => {
+  await runProductRecovery({
+    recover: () => recoverBasket(),
+    feedback: recoveryFeedback,
+  });
+};
+
 const addToCart = async () => {
   if (!product.value || addToCartBusy.value) return;
 
@@ -406,7 +415,8 @@ useHead(() => ({
             class="mt-6"
             :access="access === 'ready' || access === 'loading' ? '' : access"
             :pending="pending"
-            @action="recoverBasket"
+            :feedback="recoveryFeedback"
+            @action="recoverFromNotice"
           />
 
           <button

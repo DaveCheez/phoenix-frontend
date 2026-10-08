@@ -5,6 +5,7 @@
     aria-live="polite"
   >
     <p>{{ message }}</p>
+    <p v-if="feedback && feedback !== message" class="mt-2">{{ feedback }}</p>
     <p v-if="detail" class="mt-2">{{ detail }}</p>
     <div class="mt-4 flex flex-wrap gap-3">
       <button
@@ -33,6 +34,7 @@ import { computed } from "vue";
 const props = defineProps({
   access: { type: String, default: "loading" },
   pending: { type: Boolean, default: false },
+  feedback: { type: String, default: "" },
 });
 
 defineEmits(["action"]);
