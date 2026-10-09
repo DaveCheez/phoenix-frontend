@@ -19,6 +19,17 @@ export default defineNuxtConfig({
     djangoApiBase: "http://127.0.0.1:8000/api",
     googlePlacesApiKey: "",
     googlePlacesPlaceId: "ChIJ8_c21s8Ke0gRA_p2G3v4g3g",
+    cartCsrfSecret: "",
+    // One explicit origin for this deployment. Confirm the canonical
+    // production hostname before setting NUXT_CART_ORIGIN to its HTTPS origin.
+    cartOrigin: "",
+    // Separate from the guest, CSRF, contact and Django secrets.
+    cartAppCredential: "",
+    // Empty outside Nuxt development. "digitalocean" is an explicit
+    // trusted-ingress assumption, not a live setting in this repository.
+    cartTrustedIngress: "",
+    // Server-only shared secret for Django POST /contact/. Never expose publicly.
+    contactProxySecret: "",
 
     public: {
       siteUrl: "http://localhost:3000",
@@ -30,10 +41,16 @@ export default defineNuxtConfig({
   nitro: {
     preset: "node-server",
     compressPublicAssets: true,
+    errorHandler: "~/server/utils/cartCacheError.ts",
   },
 
   routeRules: {
     "/api/cart/**": {
+      headers: {
+        "cache-control": "private, no-store, no-cache, must-revalidate",
+      },
+    },
+    "/api/contact": {
       headers: {
         "cache-control": "private, no-store, no-cache, must-revalidate",
       },

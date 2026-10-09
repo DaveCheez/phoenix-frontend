@@ -12,12 +12,13 @@
     "dev": "nuxt dev",
     "start": "node .output/server/index.mjs",
     "preview": "nuxt preview",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "test:cart-access": "node --experimental-strip-types --import ./tests/register-ts.mjs --test tests/cart-access.test.ts tests/cart-client.test.js tests/cart-cache-policy.test.ts tests/product-recovery.test.js tests/cart-page-recovery.test.js"
   },
   "dependencies": {
     "@nuxt/icon": "1.11.0",
     "@stripe/stripe-js": "5.6.0",
-    "nuxt": "3.21.11",
+    "nuxt": "4.4.8",
     "swiper": "11.2.5",
     "vue": "^3.5.12",
     "vue-router": "^4.5.0"

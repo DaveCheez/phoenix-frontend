@@ -13,7 +13,7 @@ const checks = [
   { path: "/favicon.ico", type: "asset" },
   { path: "/api/categories?type=product", type: "json" },
   { path: "/api/slides", type: "json" },
-  { path: "/api/cart/create", type: "json", method: "POST", body: "{}" },
+  { path: "/api/cart/create", type: "json", method: "POST", body: "{}", expectFailure: true },
 ];
 
 let failed = false;
@@ -46,7 +46,16 @@ for (const check of checks) {
       }
     }
 
-    if (!response.ok) {
+    if (check.expectFailure) {
+      const leakedCredential = /guest_access|"token"\s*:/.test(body);
+      if (response.ok || leakedCredential) {
+        failed = true;
+        console.error(`FAIL ${check.path}: unauthenticated create must be rejected without a credential (${detail})`);
+        console.error(body.slice(0, 500));
+      } else {
+        console.log(`PASS ${check.path}: rejected ${detail}`);
+      }
+    } else if (!response.ok) {
       failed = true;
       console.error(`FAIL ${check.path}: ${detail}`);
       console.error(body.slice(0, 500));

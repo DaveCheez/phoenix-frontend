@@ -8,7 +8,8 @@ import "swiper/css/navigation";
 
 import ProductOptions from "@/components/ProductOptions.vue";
 import logoUrl from "~/assets/images/logo.png";
-import { errorText } from "~/utils/apiData";
+import { logCartFailure } from "~/utils/cartClient";
+import { runProductRecovery } from "~/utils/productRecovery";
 
 const route = useRoute();
 const slug = computed(() => String(route.params.slug || ""));
@@ -49,17 +50,14 @@ const hasReceivedOptionState = ref(false);
 const activeTab = ref("description");
 const galleryOpen = ref(false);
 const isAddingToCart = ref(false);
+const recoveryFeedback = ref("");
 
-const OPTION_ERROR_CODES = new Set([
-  "MISSING_REQUIRED_OPTION",
-  "INVALID_OPTION",
-  "DUPLICATE_OPTION",
-  "DUPLICATE_GROUP_SELECTION",
-  "INVALID_OPTIONS_FORMAT",
-  "CONFIGURATION_CONFLICT",
-]);
-
-const { addToCart: addToCartComposable } = useCart();
+const {
+  access,
+  pending,
+  addToCart: addToCartComposable,
+  recoverBasket,
+} = useCart();
 const toast = useToast();
 
 const penceFromDecimalString = (value) => {
@@ -172,14 +170,8 @@ const onOptionStateUpdate = (state) => {
   };
 };
 
-const cartErrorMessage = (error) => {
-  const code = String(error?.data?.code || "");
-  const fallback = "There was an issue adding the item to your cart.";
-  if (OPTION_ERROR_CODES.has(code) && error?.data?.error) {
-    return String(error.data.error);
-  }
-  return errorText(error, fallback);
-};
+const cartErrorMessage = (error) =>
+  error?.customerMessage || "We could not confirm the latest basket update. Check your basket before trying the change again.";
 
 watch(
   () => product.value?.images,
@@ -241,6 +233,13 @@ watch(
   },
 );
 
+const recoverFromNotice = async () => {
+  await runProductRecovery({
+    recover: () => recoverBasket(),
+    feedback: recoveryFeedback,
+  });
+};
+
 const addToCart = async () => {
   if (!product.value || addToCartBusy.value) return;
 
@@ -253,14 +252,18 @@ const addToCart = async () => {
 
   isAddingToCart.value = "loading";
   try {
-    await addToCartComposable(product.value.id, 1, selectedOptionIds.value);
+    const result = await addToCartComposable(product.value.id, 1, selectedOptionIds.value);
+    if (result?.ok !== true) {
+      isAddingToCart.value = false;
+      return;
+    }
     isAddingToCart.value = "added";
     toast.success(`${product.value.name} added to your cart.`);
     window.setTimeout(() => {
       isAddingToCart.value = false;
     }, 1800);
   } catch (error) {
-    console.error("Failed to add item to cart:", error);
+    logCartFailure("cart-add", error);
     toast.error(cartErrorMessage(error));
     isAddingToCart.value = false;
   }
@@ -407,6 +410,14 @@ useHead(() => ({
           >
             Choose an option for every required group before adding this product.
           </p>
+
+          <CartSessionNotice
+            class="mt-6"
+            :access="access === 'ready' || access === 'loading' ? '' : access"
+            :pending="pending"
+            :feedback="recoveryFeedback"
+            @action="recoverFromNotice"
+          />
 
           <button
             type="button"

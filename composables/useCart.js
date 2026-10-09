@@ -1,311 +1,114 @@
-import { computed } from "vue";
+import { computed, reactive } from "vue";
+import { createCartController } from "~/utils/cartClient";
 
-let cartCreationPromise = null;
-let cartLoadPromise = null;
-let mutationQueue = Promise.resolve();
-let loadSequence = 0;
+const CART_LOCK = "phoenix-guest-cart";
+const LEGACY_STORAGE_KEY = "phoenix_cart_id";
+const LOCK_WAIT_MS = 15000;
 
-const CART_STORAGE_KEY = "phoenix_cart_id";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const state = reactive({
+  cart: null,
+  access: "loading",
+  pending: false,
+});
 
-const errorMessage = (error, fallback) =>
-  error?.data?.error ||
-  error?.data?.statusMessage ||
-  error?.statusMessage ||
-  error?.message ||
-  fallback;
+let controller;
+let channel = null;
 
-const normaliseCartId = (value) => {
-  if (typeof value !== "string") return null;
-  const candidate = value.trim().replace(/^"|"$/g, "");
-  return UUID_PATTERN.test(candidate) ? candidate : null;
-};
-
-const readStoredCartId = () => {
-  if (!import.meta.client) return null;
-
+function legacyPresent() {
+  if (!import.meta.client) return false;
   try {
-    return normaliseCartId(window.localStorage.getItem(CART_STORAGE_KEY));
+    return Boolean(window.localStorage.getItem(LEGACY_STORAGE_KEY));
   } catch {
-    return null;
+    return false;
   }
-};
+}
 
-const writeStoredCartId = (cartId) => {
+function retireLegacy() {
   if (!import.meta.client) return;
-
   try {
-    const validId = normaliseCartId(cartId);
-    if (validId) window.localStorage.setItem(CART_STORAGE_KEY, validId);
-    else window.localStorage.removeItem(CART_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
-    // The cart still works through the HttpOnly server cookie when storage is
-    // unavailable, for example in a privacy-restricted browser context.
+    // The server retires the legacy cookie after a confirmed new session.
   }
-};
+}
+
+function ensureChannel() {
+  if (!import.meta.client || channel || typeof BroadcastChannel === "undefined") return;
+  channel = new BroadcastChannel(CART_LOCK);
+  channel.onmessage = (event) => {
+    if (event?.data?.type === "refresh") controller?.loadCart();
+  };
+}
+
+function notifyRefresh() {
+  ensureChannel();
+  channel?.postMessage({ type: "refresh" });
+}
+
+async function nuxtFetch(path, options = {}) {
+  const response = await $fetch.raw(path, options);
+  return { status: response.status, _data: response._data };
+}
+
+function locksAvailable() {
+  return import.meta.client && typeof navigator !== "undefined" && typeof navigator.locks?.request === "function";
+}
+
+function cartController() {
+  if (!controller) {
+    controller = createCartController({
+      state,
+      fetch: nuxtFetch,
+      locksAvailable,
+      lock: (task) => navigator.locks.request(
+        CART_LOCK,
+        { signal: AbortSignal.timeout(LOCK_WAIT_MS) },
+        () => task(),
+      ),
+      legacyPresent,
+      retireLegacy,
+      ensureChannel,
+      notify: notifyRefresh,
+    });
+  }
+  return controller;
+}
 
 export function useCart() {
-  const cartItems = useState("cart-items", () => []);
-  const cartTotal = useState("cart-total", () => "0.00");
-  const cartIdState = useState("cart-id", () => null);
-  const isCartLoading = useState("cart-loading", () => false);
-  const activeMutations = useState("cart-active-mutations", () => 0);
-  const pendingItemIds = useState("cart-pending-items", () => ({}));
-  const cartError = useState("cart-error", () => "");
-
-  const cartItemCount = computed(() =>
-    cartItems.value.reduce(
-      (total, item) => total + Number(item.quantity || 0),
-      0,
-    ),
-  );
-  const isCartMutating = computed(() => activeMutations.value > 0);
-
-  const rememberCartId = (cartId) => {
-    const validId = normaliseCartId(cartId);
-    if (!validId) return null;
-
-    cartIdState.value = validId;
-    writeStoredCartId(validId);
-    return validId;
-  };
-
-  const getCartId = () =>
-    normaliseCartId(cartIdState.value) || readStoredCartId();
-
-  const applyCart = (cart) => {
-    if (!cart || !Array.isArray(cart.items)) return false;
-
-    rememberCartId(cart.id || getCartId());
-    cartItems.value = cart.items;
-    cartTotal.value = String(cart.total ?? "0.00");
-    cartError.value = "";
-    return true;
-  };
-
-  const resetCartState = ({ clearStoredId = false } = {}) => {
-    cartItems.value = [];
-    cartTotal.value = "0.00";
-    cartIdState.value = null;
-    cartError.value = "";
-    if (clearStoredId) writeStoredCartId(null);
-  };
-
-  /**
-   * Keep two compatible identifiers for an anonymous cart:
-   * 1. the HttpOnly cookie owned by the Nuxt server; and
-   * 2. a UUID in localStorage that is sent explicitly with every request.
-   *
-   * The explicit UUID prevents a dropped, stale or host-specific cookie from
-   * causing the add and read requests to operate on different carts.
-   */
-  const ensureCartExists = async () => {
-    const existingCartId = getCartId();
-    if (existingCartId) {
-      rememberCartId(existingCartId);
-      return existingCartId;
-    }
-
-    if (!cartCreationPromise) {
-      cartCreationPromise = $fetch("/api/cart/create", {
-        method: "POST",
-        credentials: "same-origin",
-      })
-        .then((response) => {
-          if (response?.success === false || !response?.cart_id) {
-            throw new Error(
-              response?.error || "Cart ID was not returned by the API",
-            );
-          }
-
-          const cartId = rememberCartId(response.cart_id);
-          if (!cartId) throw new Error("The cart API returned an invalid cart ID");
-          if (response.cart) applyCart(response.cart);
-          return cartId;
-        })
-        .finally(() => {
-          cartCreationPromise = null;
-        });
-    }
-
-    return await cartCreationPromise;
-  };
-
-  const loadCart = async ({ force = false, retry = true } = {}) => {
-    if (cartLoadPromise && !force) return await cartLoadPromise;
-
-    const requestNumber = ++loadSequence;
-    isCartLoading.value = true;
-
-    const run = async () => {
-      try {
-        const cartId = await ensureCartExists();
-        const data = await $fetch("/api/cart", {
-          method: "GET",
-          query: { cart_id: cartId },
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-
-        if (data?.success === false) {
-          if (retry && data.code === "CART_NOT_FOUND") {
-            resetCartState({ clearStoredId: true });
-            return await loadCart({ force: true, retry: false });
-          }
-          throw new Error(data.error || "The cart could not be loaded");
-        }
-
-        if (!data?.cart || !Array.isArray(data.cart.items)) {
-          throw new Error("The cart API returned an invalid response");
-        }
-
-        if (requestNumber === loadSequence) applyCart(data.cart);
-        return data;
-      } catch (error) {
-        const message = errorMessage(error, "The cart could not be loaded");
-        cartError.value = message;
-        console.error("Failed to load cart:", error);
-        throw error;
-      } finally {
-        if (requestNumber === loadSequence) isCartLoading.value = false;
-      }
-    };
-
-    const currentPromise = run();
-    cartLoadPromise = currentPromise;
-
-    try {
-      return await currentPromise;
-    } finally {
-      if (cartLoadPromise === currentPromise) cartLoadPromise = null;
-    }
-  };
-
-  const markItemPending = (itemId, pending) => {
-    if (!itemId) return;
-    const key = String(itemId);
-    const next = { ...pendingItemIds.value };
-    if (pending) next[key] = true;
-    else delete next[key];
-    pendingItemIds.value = next;
-  };
-
-  const enqueueMutation = (operation, itemId = null) => {
-    activeMutations.value += 1;
-    markItemPending(itemId, true);
-
-    const task = mutationQueue.then(operation, operation);
-    mutationQueue = task.catch(() => undefined);
-
-    return task.finally(() => {
-      activeMutations.value = Math.max(0, activeMutations.value - 1);
-      markItemPending(itemId, false);
-    });
-  };
-
-  const handleMutationResponse = async (response, fallbackMessage) => {
-    if (response?.success === false) {
-      throw new Error(response.error || fallbackMessage);
-    }
-
-    // A mutation invalidates any older GET that may still be in flight.
-    loadSequence += 1;
-    isCartLoading.value = false;
-
-    if (response?.cart_id) rememberCartId(response.cart_id);
-
-    if (!applyCart(response?.cart)) {
-      await loadCart({ force: true });
-    }
-
-    return response;
-  };
-
-  const addToCart = async (productId, quantity = 1, options = []) =>
-    await enqueueMutation(async () => {
-      const cartId = await ensureCartExists();
-      const response = await $fetch("/api/cart/add", {
-        method: "POST",
-        credentials: "same-origin",
-        body: {
-          cart_id: cartId,
-          product_id: productId,
-          quantity: Number(quantity),
-          options: Array.isArray(options) ? options : [],
-        },
-      });
-      return await handleMutationResponse(
-        response,
-        "The item could not be added",
-      );
-    });
-
-  const updateCartItem = async (itemId, quantity) =>
-    await enqueueMutation(async () => {
-      const cartId = await ensureCartExists();
-      const response = await $fetch("/api/cart/update", {
-        method: "POST",
-        credentials: "same-origin",
-        body: {
-          item_id: itemId,
-          cart_id: cartId,
-          quantity: Number(quantity),
-        },
-      });
-      return await handleMutationResponse(
-        response,
-        "The cart item could not be updated",
-      );
-    }, itemId);
-
-  const removeFromCart = async (itemId) =>
-    await enqueueMutation(async () => {
-      const cartId = await ensureCartExists();
-      const response = await $fetch("/api/cart/remove", {
-        method: "POST",
-        credentials: "same-origin",
-        body: { item_id: itemId, cart_id: cartId },
-      });
-      return await handleMutationResponse(
-        response,
-        "The item could not be removed",
-      );
-    }, itemId);
-
-  const clearCart = async () =>
-    await enqueueMutation(async () => {
-      const cartId = await ensureCartExists();
-      const response = await $fetch("/api/cart/clear", {
-        method: "DELETE",
-        credentials: "same-origin",
-        body: { cart_id: cartId },
-      });
-      return await handleMutationResponse(
-        response,
-        "The cart could not be cleared",
-      );
-    });
-
-  const isItemPending = (itemId) =>
-    Boolean(pendingItemIds.value[String(itemId)]);
+  const api = cartController();
+  const totalItems = computed(() => {
+    if (state.access !== "ready" && state.access !== "temporary") return 0;
+    return (state.cart?.items || []).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+  });
+  const cartItems = computed(() => {
+    if (state.access !== "ready" && state.access !== "temporary") return [];
+    return state.cart?.items || [];
+  });
 
   return {
+    cart: computed(() => state.cart),
+    access: computed(() => state.access),
+    pending: computed(() => state.pending),
+    lastError: computed(() => ""),
+    totalItems,
     cartItems,
-    cartTotal,
-    cartItemCount,
-    cartError,
-    isCartLoading,
-    isCartMutating,
-    pendingItemIds,
-    isItemPending,
-    getCartId,
-    loadCart,
-    addToCart,
-    updateCartItem,
-    removeFromCart,
-    clearCart,
-    ensureCartExists,
-    resetCartState,
+    cartTotal: computed(() => state.cart?.total ?? null),
+    cartError: computed(() => ""),
+    isCartLoading: computed(() => state.access === "loading"),
+    isCartMutating: computed(() => state.pending),
+    isItemPending: () => state.pending,
+    cartItemCount: totalItems,
+    loadCart: api.loadCart,
+    startNewBasket: api.startNewBasket,
+    openEmptyBasket: api.openEmptyBasket,
+    refreshBasket: api.refreshBasket,
+    recoverBasket: api.recoverBasket,
+    addToCart: api.addToCart,
+    adjustQuantity: api.adjustQuantity,
+    updateQuantity: api.setQuantity,
+    updateCartItem: api.setQuantity,
+    removeItem: api.removeItem,
+    removeFromCart: api.removeItem,
+    clearCart: api.clearCart,
   };
 }

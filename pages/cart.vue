@@ -1,8 +1,12 @@
 <script setup>
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import logoUrl from "~/assets/images/logo.png";
+import { LAST_CONFIRMED_LABEL, logCartFailure } from "~/utils/cartClient";
+import { runProductRecovery } from "~/utils/productRecovery";
 
 const {
+  access,
+  pending,
   cartItems,
   cartTotal,
   cartError,
@@ -10,10 +14,13 @@ const {
   isCartMutating,
   isItemPending,
   loadCart,
+  recoverBasket,
+  adjustQuantity,
   updateCartItem,
   removeFromCart,
 } = useCart();
 const toast = useToast();
+const recoveryFeedback = ref("");
 const config = useRuntimeConfig();
 const checkoutEnabled = computed(() =>
   config.public.checkoutEnabled === true ||
@@ -23,10 +30,39 @@ const checkoutEnabled = computed(() =>
 onMounted(async () => {
   try {
     await loadCart();
-  } catch {
-    toast.error("Your cart could not be loaded. Please refresh and try again.");
+  } catch (error) {
+    logCartFailure("cart-read", error);
+    if (error?.cartCode === "CART_LOCKS_UNAVAILABLE") return;
+    toast.error(error?.customerMessage || "Your cart could not be loaded. Please refresh and try again.");
   }
 });
+
+const recoverFromNotice = async () => {
+  await runProductRecovery({
+    recover: () => recoverBasket(),
+    feedback: recoveryFeedback,
+  });
+};
+
+const reportCartFailure = (operation, error) => {
+  logCartFailure(operation, error);
+  toast.error(error?.customerMessage || "We could not confirm the latest basket update. Check your basket before trying the change again.");
+};
+
+const changeQuantity = async (item, delta) => {
+  if (isItemPending(item.item_id)) return false;
+  try {
+    const result = await adjustQuantity(item.item_id, delta);
+    if (result?.ok !== true) return false;
+    toast.success(delta < 0 && result.cart?.items?.every((line) => line.item_id !== item.item_id)
+      ? `${item.name} removed from your cart.`
+      : "Cart quantity updated.");
+    return true;
+  } catch (error) {
+    reportCartFailure("cart-update", error);
+    return false;
+  }
+};
 
 const updateQuantity = async (item, requestedQuantity) => {
   const quantity = Number.parseInt(String(requestedQuantity), 10);
@@ -38,13 +74,13 @@ const updateQuantity = async (item, requestedQuantity) => {
   if (isItemPending(item.item_id)) return false;
 
   try {
-    await updateCartItem(item.item_id, quantity);
+    const result = await updateCartItem(item.item_id, quantity);
+    if (result?.ok !== true) return false;
     if (quantity === 0) toast.success(`${item.name} removed from your cart.`);
     else toast.success("Cart quantity updated.");
     return true;
   } catch (error) {
-    console.error("Quantity update failed:", error);
-    toast.error(error?.message || "Unable to update the cart.");
+    reportCartFailure("cart-update", error);
     return false;
   }
 };
@@ -70,11 +106,13 @@ const removeItem = async (item) => {
   if (isItemPending(item.item_id)) return false;
 
   try {
-    await removeFromCart(item.item_id);
+    const result = await removeFromCart(item.item_id);
+    if (result?.ok !== true) return false;
     toast.success(`${item.name} removed from your cart.`);
+    return true;
   } catch (error) {
-    console.error("Remove item failed:", error);
-    toast.error(error?.message || "Unable to remove the item.");
+    reportCartFailure("cart-remove", error);
+    return false;
   }
 };
 
@@ -113,6 +151,14 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
   <div class="container mx-auto px-4 py-8 pt-28">
     <h1 class="mb-6 text-center text-3xl font-bold">Your Shopping Cart</h1>
 
+    <CartSessionNotice
+      class="mb-6"
+      :access="access"
+      :pending="pending"
+      :feedback="recoveryFeedback"
+      @action="recoverFromNotice"
+    />
+
     <div v-if="isCartLoading" class="py-16 text-center" aria-live="polite">
       <Icon name="svg-spinners:ring-resize" class="mx-auto mb-3 h-8 w-8" />
       <p>Loading your cart...</p>
@@ -129,6 +175,10 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
             class="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700"
           >
             {{ cartError }}
+          </p>
+
+          <p v-if="access === 'temporary'" class="mb-4 text-sm font-semibold text-amber-950">
+            {{ LAST_CONFIRMED_LABEL }}
           </p>
 
           <ul>
@@ -227,9 +277,9 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
                     <button
                       type="button"
                       class="flex h-11 w-11 items-center justify-center rounded-md border text-lg transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      :disabled="isItemPending(item.item_id)"
+                      :disabled="isItemPending(item.item_id) || access !== 'ready'"
                       :aria-label="`Decrease ${item.name} quantity`"
-                      @click="updateQuantity(item, item.quantity - 1)"
+                      @click="changeQuantity(item, -1)"
                     >
                       <Icon name="heroicons:minus" class="h-4 w-4" />
                     </button>
@@ -240,16 +290,16 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
                       max="999"
                       inputmode="numeric"
                       class="h-11 w-16 rounded-md border text-center"
-                      :disabled="isItemPending(item.item_id)"
+                      :disabled="isItemPending(item.item_id) || access !== 'ready'"
                       :aria-label="`${item.name} quantity`"
                       @change="handleQuantityInput(item, $event)"
                     />
                     <button
                       type="button"
                       class="flex h-11 w-11 items-center justify-center rounded-md border text-lg transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      :disabled="isItemPending(item.item_id) || item.quantity >= 999"
+                      :disabled="isItemPending(item.item_id) || access !== 'ready' || item.quantity >= 999"
                       :aria-label="`Increase ${item.name} quantity`"
-                      @click="updateQuantity(item, item.quantity + 1)"
+                      @click="changeQuantity(item, 1)"
                     >
                       <Icon name="heroicons:plus" class="h-4 w-4" />
                     </button>
@@ -264,7 +314,7 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
                 <button
                   type="button"
                   class="text-sm font-semibold text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  :disabled="isItemPending(item.item_id)"
+                  :disabled="isItemPending(item.item_id) || access !== 'ready'"
                   @click="removeItem(item)"
                 >
                   {{ isItemPending(item.item_id) ? "Updating..." : "Remove" }}
@@ -314,7 +364,7 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
       </div>
     </div>
 
-    <div v-else class="py-16 text-center">
+    <div v-else-if="access === 'ready'" class="py-16 text-center">
       <p class="mb-4 text-xl text-gray-600">Your cart is empty.</p>
       <NuxtLink
         to="/"

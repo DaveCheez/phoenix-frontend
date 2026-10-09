@@ -1,54 +1,10 @@
-import { defineEventHandler, readBody, setResponseStatus } from "h3";
+import { defineEventHandler } from "h3";
 
-import {
-  clearCartId,
-  createCart,
-  ensureCartId,
-  isCartNotFoundError,
-} from "../../utils/cartSession";
-import { markCartResponsePrivate } from "../../utils/cartResponse";
-import { djangoFetch } from "../../utils/django";
-import { proxyError } from "../../utils/proxyError";
+import { handleAdd } from "../../utils/cartActions";
+import { beginCart, callDjango } from "../../utils/cartRoute";
 
-export default defineEventHandler(async (event) => {
-  markCartResponsePrivate(event);
-  const body = await readBody<Record<string, any>>(event).catch(() => ({}));
-
-  if (!body?.product_id) {
-    setResponseStatus(event, 400);
-    return {
-      success: false,
-      code: "MISSING_FIELDS",
-      error: "Product ID is required",
-    };
-  }
-
-  const add = async (cartId: string) =>
-    await djangoFetch(event, "cart/add/", {
-      method: "POST",
-      body: {
-        cart_id: cartId,
-        product_id: body.product_id,
-        quantity: body.quantity ?? 1,
-        options: body.options ?? [],
-      },
-    });
-
-  try {
-    let cartId = await ensureCartId(event, body.cart_id);
-
-    try {
-      return await add(cartId);
-    } catch (error: any) {
-      if (!isCartNotFoundError(error)) throw error;
-
-      clearCartId(event);
-      const created = await createCart(event);
-      cartId = created.cart_id;
-      return await add(cartId);
-    }
-  } catch (error: any) {
-    console.error("Cart add proxy error:", error?.data || error);
-    return proxyError(event, error, "Failed to add item to cart");
-  }
+export default defineEventHandler((event) => {
+  const started = beginCart(event);
+  if (!started.ok) return started.body;
+  return handleAdd(event, started.config, (input) => callDjango(event, started.config, input));
 });

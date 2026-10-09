@@ -1,144 +1,220 @@
-# Phoenix Vanz Website To-Do List
+# Phoenix Vanz project tracker
 
-Last reviewed: 28 September 2026
-Primary frontend repository: DaveCheez/phoenix-frontend
+Last reviewed: 9 October 2026
+Previous review recorded in this file: 28 September 2026
 
-Status legend:
-- [ ] To do
-- [~] In progress or partially implemented
-- [x] Completed and deployed
-- [D] Deferred — agreed, but not ready to build
+This file is the project status source. Detailed test transcripts stay in
+their own documents. This review did not rerun test suites and did not probe
+the live site.
 
-## P0 — Revenue, Enquiries and Checkout
+Reviewed code, not this documentation edit:
 
-### Contact form and enquiry delivery
-- [ ] **Contact form: deliver every genuine enquiry to Phoenix Vanz by email.**
-  - Submit to a first-party Nuxt/Django endpoint; do not rely on `mailto:`.
-  - Save the enquiry in Django before attempting email delivery so enquiries are not lost when the mail provider is unavailable.
-  - Send from a verified Phoenix Vanz/domain address and set `Reply-To` to the customer's email address.
-  - Configure the recipient through an environment variable such as `CONTACT_TO_EMAIL`; do not hard-code the personal address in the frontend.
-  - Email subject should clearly identify a website enquiry and the customer's name/product where available.
-  - Include: customer name, email, telephone, van make/model/year/length, product of interest, message, source page URL, submission time and enquiry reference.
-  - Add server-side validation, honeypot/rate limiting, sanitisation and useful error logging.
-  - Show clear sending, success and failure states in the frontend; preserve entered values after a failure.
-  - Send a customer acknowledgement only after the Phoenix Vanz delivery succeeds.
-  - Test real delivery to the configured Phoenix Vanz inbox in production, including `Reply-To`; a HTTP 200 response alone is not acceptance.
+- Frontend `feature/guest-cart-access` `208572716fc17fc7bcd343193c89b772ad279368`
+- Backend `feature/order-foundation` `7bc85397c2f0287226cf1fb790b6270ab8951c34`
+- Backend `upgrade/django-5-2` `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`
 
-### Deposit checkout and payment
-- [ ] **Stripe: finish and production-test the 1/3 deposit checkout.**
-  - Customer pays one third at checkout; remaining balance is due on completion.
-  - Calculate prices and the deposit on the server, not in the browser.
-  - Correct Stripe environment variables and remove the previous invalid-key failure.
-  - Create a durable order before payment and store deposit amount, outstanding balance and payment status.
-  - Verify webhooks, signatures, idempotency and duplicate-payment protection.
-  - Confirm the order-confirmation and balance-payment pages work from a real order reference.
-  - Send Phoenix Vanz and the customer a payment/order email after a verified webhook event.
-  - Make the workshop fitting, lead-time and balance terms clear before payment.
+The merge path is `docs/release-plan.md`. It has not been executed.
 
-### Order and enquiry reliability
-- [ ] Add Django-admin visibility for contact enquiries, failed email attempts and order/payment status.
-- [ ] Add retry handling for failed transactional emails without creating duplicate emails or orders.
-- [ ] Add a documented manual fallback process for enquiries or orders received while an external provider is unavailable.
+## Why the 28 September list was stale
 
-## P0 — Current Production Bugs
+`todos.txt` was last changed by frontend `a968071` on 28 September 2026
+("added agents.md"). That commit is an ancestor of both `master` and
+`feature/guest-cart-access`. The current branch was not an older checkout.
+Later homepage, product-option, guest-cart, order and Django 5.2 commits did
+not update this file.
 
-### Reviews errors while Elfsight remains live
-- [ ] **Stop the unused/failing `/api/google-reviews` request from running twice and returning 504.**
-  - Keep the current Elfsight widget temporarily.
-  - Remove or disable the dead first-party fetch until the Django reviews replacement is deliberately started.
-  - Confirm the homepage console has no Google-reviews 504 or `FetchError` messages.
+## Status words
 
-### Page metadata
-- [ ] Add a unique, non-empty `<title>` to the homepage, About, Contact, Cart, Services, Checkout, Order Confirmation and Balance pages.
-- [ ] Add canonical URLs for all indexable routes.
-- [ ] Add route-specific meta descriptions, Open Graph tags and social sharing images.
-- [ ] Verify product/category metadata does not fall back to generic copy where specific copy exists.
+- Implemented: the behaviour is in a named commit.
+- Tested: a recorded local or isolated check exists. The transcript stays in the linked document.
+- Merged: the commit is in the named production source branch.
+- Deployed: a recorded live revision proves it. A checked-in app spec is not that proof.
+- Deferred: agreed, and not part of the current release.
 
-## P1 — Frontend Bugs, Accessibility and UX
+Committed does not mean merged. Merged to a feature branch does not mean deployed.
 
-### Contact and forms
-- [ ] Make all contact fields accessible, labelled and keyboard friendly.
-- [ ] Add inline validation that matches the server rules without replacing server-side validation.
-- [ ] Add privacy wording and consent where customer details are collected.
-- [ ] Pre-fill product/source information when a user opens Contact from a product page.
+## Standing commercial terms
 
-### Accessibility
-- [ ] Increase carousel dot hit areas to at least 44 × 44 CSS pixels while keeping the visible dot small.
-- [ ] Give the Phoenix Vanz logo/home link an accessible name and serve an appropriately sized logo asset.
-- [ ] Add a meaningful title to the Elfsight iframe while it remains in use, where technically possible.
-- [ ] Verify visible focus states, keyboard navigation and reduced-motion behaviour across navigation, carousel, cart and checkout.
-- [ ] Run a manual keyboard and screen-reader pass after automated accessibility fixes.
+These remain in force. They are not permission to enable checkout.
 
-### Error and loading states
-- [ ] Ensure Django/API outages show useful, non-destructive fallback states rather than blank sections or generic 500 pages.
-- [ ] Prevent repeated proxy requests and noisy duplicate error logging when an upstream endpoint is unavailable.
-- [ ] Add consistent loading, empty and retry states for categories, products, cart, checkout and reviews.
+- Workshop fitting only, at the Accrington workshop. Delivery is not offered.
+- Fitting is included at no charge.
+- Prices do not add a VAT charge.
+- A future checkout takes a one-third deposit. The balance is due on completion.
+- Deposit and balance are calculated on the server from the agreed order total.
+  `orders/money.py` on the foundation branch uses
+  `deposit_pence = (total_pence + 1) // 3`.
+- The cart page already states workshop fitting and no delivery. Lead time,
+  the no-charge fitting statement, and the no-VAT statement are not yet a
+  complete customer-facing price explanation. PV-COPY remains open.
 
-### Local development
-- [ ] Add a repeatable local seed/fixture command so expected categories and product slugs exist in SQLite.
-- [ ] Add `.env.example` files for frontend and backend with variable names only, never secrets.
-- [ ] Resolve or document the Nuxt `#app-manifest` development cache error; add a safe cache-clean development script if required.
-- [ ] Move unsupported `postcss.config.js` settings into `nuxt.config.ts` and remove the Nuxt warning.
+## 1. Current release scope
 
-## P1 — Testing and Release Safety
+The candidate pair is the guest-cart and order-foundation line, including
+the isolated Django 5.2 upgrade, integrated onto the production source
+branches only after the blockers in section 3.
 
-- [ ] Add a real frontend test script rather than relying only on `npm run build`.
-- [ ] Add Vitest tests for composables, cart calculations, form validation and API response normalisation.
-- [ ] Add Playwright end-to-end tests for:
-  - contact enquiry submission and failure recovery;
-  - add/update/remove cart items;
-  - 1/3 deposit checkout and order confirmation using Stripe test mode;
-  - balance-payment route;
-  - mobile navigation and homepage carousel;
-  - backend-unavailable fallback behaviour.
-- [ ] Keep GitHub CI as the merge gate and make deployment depend on successful CI.
-- [ ] Add a post-deployment smoke test for homepage, contact, cart, checkout, health and key API endpoints.
+| | Candidate | Production source named by the checked-in spec |
+| --- | --- | --- |
+| Frontend | `feature/guest-cart-access` `208572716fc17fc7bcd343193c89b772ad279368` | `master` |
+| Backend | `upgrade/django-5-2` `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` | `main` |
 
-## P2 — Performance and Media Follow-up
+`upgrade/django-5-2` already contains `feature/order-foundation`. Fast-forward
+is possible. See the runbook. Do not treat the feature-branch checkpoints as
+extra cherry-picks.
 
-- [ ] Apply the tested Django WebP optimiser to `ProductImage` uploads and create a controlled backfill command for existing product images.
-- [ ] Add responsive category/product image sizes (`srcset`/`sizes`) so card layouts do not receive images much larger than their rendered dimensions.
-- [ ] Increase cache lifetimes for immutable, uniquely named DigitalOcean Spaces assets.
-- [ ] Correct the MIME metadata of older HomeSlide WebP objects that still return `application/octet-stream`.
-- [ ] Investigate root-document/SSR time-to-first-byte and cache only safe public data.
-- [ ] Optimise the 1500 × 1500 navigation logo for its approximately 40 × 40 display size.
+Included in those candidates, still not deployed:
 
-## P2 — Reviews Replacement — Deferred
+- guest session, application authentication, CSRF, Web Locks, recovery and both Start-feedback fixes;
+- shared counters, CSRF and reset budgets, Retry-After forwarding, with enforcement off until quotas are approved;
+- the maintenance command, without a schedule or monitor;
+- internal order snapshots and one-third deposit arithmetic, without Stripe or checkout;
+- Django 5.2.18.
 
-- [D] **Build a first-party Django-managed Google reviews system that matches or exceeds the Elfsight widget. Do not start this implementation yet.**
-  - Keep this item in the backlog until Phoenix Vanz is ready to begin the separate backend and frontend work.
-  - Planned backend scope: Google Business Profile sync, durable Django storage, admin controls, sync audit history, cached public API and failure-safe stale data.
-  - Planned frontend scope: premium Phoenix-branded summary, responsive carousel/grid, reviewer photos, dates, stars, read-more, owner replies, media, swipe/drag, keyboard controls, write-review and view-all links.
-  - Keep Elfsight until the replacement is complete, populated with real data and visually approved.
-  - Remove Elfsight, its third-party cookies/scripts and the obsolete review proxy only during the final controlled switchover.
+Not in those candidates:
 
-## P2 — Product and Customer Experience
+- contact enquiry branches (PV-CONTACT), which are a current priority and a blocker, not a silent deferral;
+- Stripe checkout and balance payment (PV-CHECKOUT), deferred;
+- first-party reviews (PV-REVIEWS), deferred. Elfsight stays.
 
-- [ ] Review the full product enquiry journey from product page to contact/order so the selected product and vehicle details carry through.
-- [ ] Add clear workshop-only fitting, four-week lead-time and vehicle-specific hinge requirements to the relevant product/checkout experience.
-- [ ] Confirm all prices shown on product, cart, checkout, deposit and balance pages are consistent with Django.
-- [ ] Add a dedicated order-status/help route with Phoenix Vanz contact details and the customer's order reference.
+Live revisions, whether the platform autodeploy matches the checked-in spec,
+and which migrations production has already applied: UNVERIFIED.
 
-## Completed and Deployed
+## 2. Implemented or tested, awaiting integration or deployment
 
-- [x] Backend cart API views restored and live.
-- [x] Repeated add-to-cart actions increase quantity rather than creating duplicate cart lines.
-- [x] Cart quantity update functionality implemented.
-- [x] Toast notifications added for user feedback.
-- [x] API base URLs centralised through Nuxt runtime configuration.
-- [x] Cart state/race handling improved.
-- [x] Django-admin-managed homepage slideshow implemented with desktop and mobile images.
-- [x] New HomeSlide uploads automatically resized and converted to WebP.
-- [x] New CategoryImage uploads automatically resized and converted to WebP.
-- [x] Existing category images backfilled to WebP in production.
-- [x] Homepage fallback JPEGs load only when Django slides are unavailable.
-- [x] Only the active homepage slide is loaded initially; inactive slides are deferred.
-- [x] First hero image uses eager loading, `fetchpriority="high"` and async decoding.
-- [x] Production domains moved to the current frontend and backend applications.
-- [x] GitHub CI and the small-branch/pull-request deployment process are working.
-- [x] Latest homepage performance baseline: approximately 95 mobile and 100 desktop, with the initial payload reduced to approximately 1.6 MB.
+Transcripts: `docs/guest-cart-access.md` in this repository;
+`docs/guest-session-access.md`, `docs/cart-counter-maintenance.md`,
+`docs/postgresql-verification.md` and `docs/django-5-2-upgrade.md` in the
+backend repository. The Django 5.2 note is on `upgrade/django-5-2`.
 
-## Working Rules
+### PV-OPTIONS — product options and basket lines
+
+Implemented and merged to frontend `master` (`2d5161989aa1f5426e391a1b9175b30be791d013`, pull request 10) and backend `main` (`9c708a0809c1ebef15cec109a0f39c409f35aa4d`, pull requests 9 and 10). Live revision UNVERIFIED.
+
+- Required and optional groups use radios.
+- Option surcharges and basket totals come from the server.
+- Supersedes the older deployed sentence "repeated add-to-cart increases quantity rather than creating duplicate lines."
+  Same product and same configuration increments that line.
+  A different configuration stays a separate line.
+  The old sentence is false for different configurations and must not be used as acceptance.
+
+### PV-SEO — homepage metadata and accessibility
+
+`fix/homepage-seo-accessibility` `f543134954ff29370b18652b1c1a4f03e005b80a` is merged to `master` by pull request 9. Live revision UNVERIFIED. This review did not re-check every page title, canonical, Open Graph image or keyboard path. Remaining gaps stay open under PV-COPY until a page-by-page check says otherwise.
+
+### PV-REVIEWS-504 — unused Google reviews proxy
+
+`fix/reviews-console-errors` `00717297fb4796f814f6a037eeb2ff56548a9fe0` is merged to `master` by pull request 8. It removes the failing first-party fetch while Elfsight stays. Live revision UNVERIFIED. The Django reviews product remains PV-REVIEWS.
+
+### PV-GUEST — guest basket access
+
+Implemented on `feature/guest-cart-access` through `208572716fc17fc7bcd343193c89b772ad279368`, paired with backend work through `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `master` or `main`. Not deployed.
+
+Covers guest cookies, application authentication, origin and CSRF checks, Web Lock `phoenix-guest-cart`, per-tab queue, explicit recovery, and no automatic retry. Local Edge checks and `npm run test:cart-access` are recorded in `docs/guest-cart-access.md`. Production HTTPS `__Host-phoenix_guest` is not verified. `NUXT_CART_TRUSTED_INGRESS` is empty in the normal development configuration.
+
+### PV-START — preparation feedback
+
+Product Start: `f66b42d752e640af476f370436b7c7b819770824`. Cart Start: `208572716fc17fc7bcd343193c89b772ad279368`. Both are on the frontend feature branch only.
+
+A CSRF failure before create is dispatched shows "The basket change was not sent. Try again." A dispatched write with an uncertain response keeps the uncertainty wording. Access-unavailable and missing-cart recovery stay distinct. Success does not add the product by itself. The cart-page check used an injected 429 and is not counter-enforcement evidence.
+
+### PV-BUDGET — shared counters
+
+Backend enforcement and the CSRF/reset budget endpoint are on `feature/order-foundation` (`5046f1102f5b3b74bfa97c6359dc604e9ad12209` and the surrounding counter commits). Nuxt forwards Retry-After from `f703a1b6d5c587069baf5a6859069d5d7372bf74`. Enabled-budget evidence is the isolated PostgreSQL run recorded on 8 October 2026, not production. `CART_RATE_LIMIT_ENABLED` defaults false. Quotas are not approved.
+
+### PV-MAINT-CMD — counter cleanup command
+
+`manage.py cart_rate_limit_maintenance` is on `2b7ea84ef0035f0865ef2972359ba85416abf729`. Scheduling and monitoring are written only as a proposal in `docs/cart-counter-maintenance.md` (`7bc85397c2f0287226cf1fb790b6270ab8951c34`). Nothing in CI or the checked-in app spec runs the command. No monitor is connected. This command does not close the basket.
+
+### PV-ORDERS — snapshots and deposit arithmetic
+
+`5d3d36e807396b985cb5d40a25bbe14e28c7be34` and `214785ad180099666eab6934fa182023a036b01c`, plus isolated PostgreSQL verification `e2fd1125708e6c08e222664fc9cd98f83dbf4ef7`. On the foundation branch only. Checkout stays disabled in `nuxt.config.ts` (`checkoutEnabled: false`) and in the checked-in frontend app spec. No Stripe payment, webhook or balance page is accepted.
+
+### PV-DJANGO52 — Django 5.2.18
+
+One commit, `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`, on top of the foundation HEAD. Isolated Linux/Python 3.11.15 and PostgreSQL 16.15 verification is recorded in `docs/django-5-2-upgrade.md`. Not a DigitalOcean buildpack run. Production PostgreSQL major version is unrecorded. No new migration.
+
+### PV-HOME — homepage slides and image loading
+
+The 28 September tracker recorded the slideshow, WebP uploads, fallback loading and the performance baseline as deployed. Those commits are ancestors of `master`. This review did not re-measure production. Do not regress the homepage image-loading optimisation. Later image follow-up stays in section 4.
+
+## 3. Release blockers, in dependency order
+
+1. PV-AUTODEPLOY. Still open. Observed 2026-10-09T16:46:48Z. No DigitalOcean session, `doctl`, or API token was available. `https://cloud.digitalocean.com/apps` redirected to the login page, so app IDs, components, live repository spelling, branches, autodeploy flags, and active deployment SHAs were not read and were not changed. The checked-in specs still are not live evidence. The backend template name `DaveCheez/pheonix` remains unresolved against Git remote `DaveCheez/phoenix`. Public GitHub Actions, read without a signed-in session, show one active workflow in each repository: frontend `Frontend tests` and backend `Backend tests`, both `.github/workflows/tests.yml`. They run on push and pull request to `master`, `main`, and `develop` only. They do not call App Platform, publish an image, or accept schedule, `workflow_run`, or manual dispatch. Queued and in-progress runs were 0. The latest completed frontend run is `master` `2d51619`; the latest completed backend run is `main` `9c708a0`. Those are CI results, not deployed revisions. A push of the local tracker commit on `feature/guest-cart-access` is not proven safe, because the live App Platform source branch is unread. Approval still required: sign in to DigitalOcean, identify the apps by domain, record the active deployment for each component, and disable autodeploy only if that control does not start a deployment.
+2. PV-CONTACT. Enquiry delivery stays in release scope and is locally integrated on `release/secure-storefront` in both repositories. Backend `ef1caaa2388474cc9956e4a3f1e49d70f41ce746` contains merge `6c474bfadcab3eb17ef5a095d002990608e638c9`. Frontend contact commit is `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7`. On 2026-10-09 a disposable PostgreSQL pair saved one enquiry, returned HTTP 201 `ENQUIRY_RECEIVED`, and a captured file had the shopper Reply-To. That captured file is not inbox delivery. Real delivery to the Phoenix Vanz inbox is not passed. Do not approve contact for production until that delivery is shown.
+3. PV-MIGRATE. Plan and rehearse backup and restore before applying the foundation migrations that are not on `main`: `cart` `0004` through `0006`, and `orders` `0001` through `0005`. Django 5.2 adds none. Contact keeps `store/migrations/0026_enquiry.py` and `store/migrations/0026_product_option_configuration.py`. Their operations are independent (create Enquiry; rename ProductOption.price). Local candidate adds empty `store/migrations/0027_merge_enquiry_and_product_options.py`. A disposable in-memory SQLite migrate applied both 0026 leaves and then 0027. Neither 0026 was renamed. Production application of `0026_product_option_configuration` remains UNVERIFIED. Backup and restore rehearsal is still required. Do not apply this graph to production from this local pass.
+4. PV-MAINT-MODE. A tested way to stop basket writes, including direct Django API paths, during the cutover. The counter cleanup command is not that mechanism. None was found in the candidate source. Do not claim a staging app or a monitor exists.
+5. PV-STAGE. Deploy this exact pair to a production-like staging environment. No such environment is recorded. Preserve homepage, product-option and Elfsight behaviour that may already be live. Staging is not the isolated local PostgreSQL containers used for verification.
+6. PV-QUOTA. Approve production budget values and the maintenance cadence, batch caps, deadline and alert recipients before enforcement or a scheduled job is turned on. Test-only policies in the verification docs are not those values.
+7. PV-SMOKE. After backend migration and deploy, deploy the matching frontend. Then HTTPS smoke of homepage, contact, basket start, add, recovery and health, before the basket is reopened. Record the deployed revision of each app.
+8. PV-ROLLBACK. Compatible paired rollback or an explicit fix-forward. Rolling the app back must not restore UUID-only basket ownership. Rolling the app back does not undo database migrations.
+
+## 4. Deferred work
+
+### PV-CHECKOUT — Stripe deposit and balance payment
+
+Deferred. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED` or production payment keys as part of the guest-cart release.
+
+Preserved requirements, still unmet:
+
+- one-third deposit at checkout, balance due on completion, both calculated on the server;
+- durable order before payment, with deposit, outstanding balance and payment status;
+- webhook signatures, idempotency and duplicate-payment protection;
+- order-confirmation and balance-payment pages from a real order reference;
+- payment email only after a verified webhook;
+- workshop fitting, lead time and balance terms visible before payment;
+- Django-admin visibility and a manual fallback while a provider is down.
+
+Historical failure to preserve: an invalid Stripe API key previously broke the unfinished checkout. Correcting that key is part of this deferred implementation. It is not permission to turn payments on. The browser key, when this work starts, must be a publishable `pk_test_` or `pk_live_` key. A secret key does not belong in the frontend.
+
+### PV-REVIEWS — first-party Google reviews
+
+Deferred. Do not start it unless explicitly requested. Elfsight stays until a replacement is populated and approved. Then remove Elfsight, its third-party scripts and the obsolete review proxy together.
+
+### PV-NUXT — further Nuxt upgrade
+
+Locally done on frontend `release/secure-storefront` only. Exact pin `nuxt@4.4.8`. This machine is Node v22.14.0. Nuxt 4.4.8 engines are `^22.12.0 || ^24.11.0 || >=26.0.0`. Nuxt 4.5.2 requires Node `^22.19.0` and Nuxt 4.6.0 requires `^22.22.3`, so those newer releases were not installed and were not tested. The official Nuxt 4 guide says the root layout can stay when Nuxt detects it. This candidate kept the existing root `pages/` layout. `npm run test:cart-access` passed 59 tests. `npm run build` completed, and `node .output/server/index.mjs` on `127.0.0.1:3011` returned homepage 200 and `/api/health` 200. Not merged to `master`. Not deployed. Node was not upgraded.
+
+### PV-COPY and older open requirements
+
+Still open. Not silently dropped:
+
+- unique titles, canonical URLs, descriptions and social images on every indexable route, where PV-SEO did not already cover them;
+- contact fields accessible and validated in line with the server, privacy wording, and product or source prefill;
+- carousel hit area, logo accessible name, Elfsight iframe title, focus, keyboard and reduced motion;
+- useful outage, empty and retry states without duplicate proxy storms;
+- local seed command and `.env.example` files that name variables only;
+- Nuxt `#app-manifest` development cache error and the `postcss.config.js` warning;
+- frontend tests beyond the current cart-access script. Vitest and Playwright are not installed. Do not treat Edge CDP notes as a Playwright suite;
+- CI remains a merge gate for the branches it already watches. Deployment must not proceed on a red check;
+- post-deploy smoke for homepage, contact, cart, checkout, health and key APIs;
+- product WebP optimiser and backfill, responsive image sizes, Spaces cache lifetime, older HomeSlide MIME types, SSR time-to-first-byte, and the navigation logo size;
+- enquiry journey carrying the selected product and vehicle details;
+- four-week lead time and vehicle-specific hinge requirements;
+- order-status route with the order reference;
+- email retry that cannot duplicate an enquiry or an order.
+
+## 5. Verified deployed history
+
+Recorded by the 28 September 2026 tracker. This review did not fetch live revisions, so these items are historical records, not a fresh production probe.
+
+- Backend cart API restored and live before the guest-session replacement.
+- Quantity update and toast notifications.
+- API base URL in Nuxt runtime configuration.
+- Earlier cart race handling. Guest-session ownership supersedes UUID-only ownership for the unreleased cutover. Do not roll back to UUID-only ownership.
+- Homepage slideshow, WebP upload conversion, category-image backfill, fallback JPEGs, and deferred inactive slides.
+- Eager, high-priority first hero image.
+- Production domains pointed at the then-current applications.
+- GitHub CI and small pull-request deployment were recorded as working. The workflows in both repositories still run tests on `master`, `main` and `develop`. They do not themselves deploy.
+- Homepage performance baseline of about 95 mobile and 100 desktop, initial payload about 1.6 MB.
+
+The older "repeated add increases quantity instead of duplicating a line" item is superseded by PV-OPTIONS.
+
+## 6. Next concrete action
+
+Cutover is requested and not approved. Frozen pair: frontend `release/secure-storefront` storefront code `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410`; backend `release/secure-storefront` `ef1caaa2388474cc9956e4a3f1e49d70f41ce746`. Do not merge or push until the owner approves in Cursor and autodeploy has been read. DigitalOcean login was still required on 2026-10-09. Production database version, applied migrations and a backup point are UNVERIFIED. Contact code is included; local capture passed; real inbox delivery has not passed. Checkout stays off.
+
+## Working rules
 
 1. Tag or record the current known-good commit before risky work.
 2. Use one feature branch per change.
@@ -148,4 +224,4 @@ Status legend:
 6. Run available local checks and GitHub CI.
 7. Merge through a pull request.
 8. Deploy only after CI passes.
-9. Update this file in the same pull request whenever a task changes status.
+9. Update this file when a task changes status. Committed is not merged, and merged is not deployed.

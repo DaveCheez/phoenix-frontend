@@ -50,6 +50,11 @@ exists and was actually run.
 - Homepage remote slides and fallback loading are already implemented.
 - Do not regress the homepage image-loading optimisation.
 
+Before reporting a feature checkpoint complete, update todos.txt with the
+implementation status, actual verification, branch/code reference and remaining
+release work. Committed does not mean merged or deployed. Deployment status
+changes only with recorded deployment evidence.
+
 ## Git safety
 
 - Never work directly on `master` for a feature.

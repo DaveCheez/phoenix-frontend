@@ -1,35 +1,10 @@
-import { defineEventHandler, readBody, setResponseStatus } from "h3";
+import { defineEventHandler } from "h3";
 
-import { ensureCartId } from "../../utils/cartSession";
-import { markCartResponsePrivate } from "../../utils/cartResponse";
-import { djangoFetch } from "../../utils/django";
-import { proxyError } from "../../utils/proxyError";
+import { handleUpdate } from "../../utils/cartActions";
+import { beginCart, callDjango } from "../../utils/cartRoute";
 
-export default defineEventHandler(async (event) => {
-  markCartResponsePrivate(event);
-  const body = await readBody<Record<string, any>>(event).catch(() => ({}));
-
-  if (!body?.item_id || !Number.isFinite(Number(body.quantity))) {
-    setResponseStatus(event, 400);
-    return {
-      success: false,
-      code: "MISSING_FIELDS",
-      error: "Item ID and quantity are required",
-    };
-  }
-
-  try {
-    const cartId = await ensureCartId(event, body.cart_id);
-    return await djangoFetch(event, "cart/update/", {
-      method: "PATCH",
-      body: {
-        item_id: body.item_id,
-        cart_id: cartId,
-        quantity: Number(body.quantity),
-      },
-    });
-  } catch (error: any) {
-    console.error("Update cart proxy error:", error?.data || error);
-    return proxyError(event, error, "Could not update cart item");
-  }
+export default defineEventHandler((event) => {
+  const started = beginCart(event);
+  if (!started.ok) return started.body;
+  return handleUpdate(event, started.config, (input) => callDjango(event, started.config, input));
 });
