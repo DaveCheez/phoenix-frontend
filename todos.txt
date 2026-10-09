@@ -173,7 +173,7 @@ Deferred. Do not start it unless explicitly requested. Elfsight stays until a re
 
 ### PV-NUXT — further Nuxt upgrade
 
-Pending. `master` and `feature/guest-cart-access` both pin Nuxt `3.21.11`, Node `>=22 <23`. The guest-cart release note says those supported versions are unchanged. A separate `phoenix-vanz-nuxt-django52` directory was not established as a worktree of this repository.
+Locally done on frontend `release/secure-storefront` only. Exact pin `nuxt@4.4.8`. This machine is Node v22.14.0. Nuxt 4.4.8 engines are `^22.12.0 || ^24.11.0 || >=26.0.0`. Nuxt 4.5.2 requires Node `^22.19.0` and Nuxt 4.6.0 requires `^22.22.3`, so those newer releases were not installed and were not tested. The official Nuxt 4 guide says the root layout can stay when Nuxt detects it. This candidate kept the existing root `pages/` layout. `npm run test:cart-access` passed 59 tests. `npm run build` completed, and `node .output/server/index.mjs` on `127.0.0.1:3011` returned homepage 200 and `/api/health` 200. Not merged to `master`. Not deployed. Node was not upgraded.
 
 ### PV-COPY and older open requirements
 

@@ -130,14 +130,14 @@ App rollback does not unapply these migrations.
 
 | Item | Evidence on 9 October 2026 |
 | --- | --- |
-| Frontend candidate | Branch `release/secure-storefront`, created from `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. Contact integration is the next commit on that branch. Not merged to `master`. Not deployed. |
+| Frontend candidate | Branch `release/secure-storefront`, contact commit `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7` on top of `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. The Nuxt pin commit follows it. Not merged to `master`. Not deployed. |
 | Backend candidate | Branch `release/secure-storefront` at `6c474bfadcab3eb17ef5a095d002990608e638c9`. Contains Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `main`. Not deployed. |
 | Tested environments | Local Nuxt `http://localhost:3000` and Django `http://127.0.0.1:8000`. Isolated `postgres:16` (server 16.15) for enabled budgets and for the Django 5.2 suite. Django 5.2 acceptance used Linux CPython 3.11.15 in a local image, not the DigitalOcean buildpack. No production-like staging app is recorded. |
 | Current live revisions | UNVERIFIED |
 | Production source branches | Checked-in frontend spec: `DaveCheez/phoenix-frontend`, branch `master`, `deploy_on_push: true`. Checked-in backend spec: repo text `DaveCheez/pheonix`, branch `main`, `deploy_on_push: true`. Live platform settings were still unread on 2026-10-09T16:46:48Z. See "Autodeploy observation" below. |
 | Pending migrations | Cart `0004`–`0006`, orders `0001`–`0005`, and store `0026_enquiry` plus `0027_merge_enquiry_and_product_options`, relative to `main`. Both store 0026 migrations remain. Applied production set UNVERIFIED. |
 | Configuration names | Frontend: `NUXT_DJANGO_API_BASE`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_CHECKOUT_ENABLED`, `NUXT_CART_CSRF_SECRET`, `NUXT_CART_ORIGIN`, `NUXT_CART_APP_CREDENTIAL`, `NUXT_CART_TRUSTED_INGRESS`. Backend: `CART_APP_CREDENTIAL`, `CART_RATE_LIMIT_HMAC_KEY`, `CART_RATE_LIMIT_ENABLED`, `CART_RATE_LIMIT_POLICIES`, `CART_FRONTEND_RATE_LIMIT_POLICIES`. Contact, only if that blocker is included: `NUXT_CONTACT_PROXY_SECRET`, `CONTACT_RECIPIENT_EMAIL`, `CONTACT_PROXY_SECRET`, and the `EMAIL_*` / `DEFAULT_FROM_EMAIL` names. No values belong in this plan. |
-| Included | Guest basket access, both Start-feedback fixes, shared counters with enforcement left off, Retry-After forwarding, maintenance command with no schedule, order snapshots and deposit arithmetic, Django 5.2.18, and the contact enquiry feature for local integration only. |
+| Included | Guest basket access, both Start-feedback fixes, shared counters with enforcement left off, Retry-After forwarding, maintenance command with no schedule, order snapshots and deposit arithmetic, Django 5.2.18, the contact enquiry feature for local integration only, and Nuxt 4.4.8 on the frontend candidate. |
 | Excluded from production approval | Real contact inbox delivery is still outstanding. Stripe checkout and balance payment. First-party reviews. Production quotas. A scheduled cleanup job. Turning on `digitalocean` trusted ingress before header provenance is verified. |
 | Approval and evidence still required | Live autodeploy control. Post-rotation runtime verification. Staging. Trusted ingress and HTTPS. Real contact delivery with Reply-To. Backup and migration rehearsal. A tested basket-write freeze. Approved quotas. Maintenance scheduling and monitoring. HTTPS smoke. Recorded deployed revisions. Neither candidate is production-ready while these remain open. |
 
@@ -187,7 +187,7 @@ Do this in order. Stop if a step is not evidenced.
 Recorded 2026-10-09. Worktrees:
 
 - Backend `backend-release-secure-storefront`, branch `release/secure-storefront`, commit `6c474bfadcab3eb17ef5a095d002990608e638c9`.
-- Frontend `phoenix-frontend-release`, branch `release/secure-storefront`, contact merge not yet named in this paragraph until that commit exists.
+- Frontend `phoenix-frontend-release`, branch `release/secure-storefront`, contact commit `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7`.
 
 Backend checks on the saved Linux virtualenv (`phoenix-vanz-django52-py311:local`, CPython 3.11, Django 5.2.18), settings `base.settings_sqlite_tests`, in-memory SQLite, locmem email:
 
@@ -198,6 +198,14 @@ Backend checks on the saved Linux virtualenv (`phoenix-vanz-django52-py311:local
 The production storage subprocess needed synthetic contact and email settings so Django 5.2 `STORAGES` could still be imported after the contact production checks. Those values are test placeholders. They are not production credentials and they are not inbox delivery.
 
 Frontend checks in the release worktree only, Nuxt 3.21.11, after `npm ci` and `nuxt build`: `npm run test:cart-access` 59 passed, 0 failed. Ports 3000 and 8000 were not used.
+
+## Local Nuxt upgrade
+
+The frontend release candidate then pins `nuxt@4.4.8`. Current Nuxt 4.6.0 requires Node `^22.22.3 || ^24.15.0 || >=26.0.0`. Nuxt 4.5.2 requires `^22.19.0 || ^24.11.0 || >=26.0.0`. This machine is Node v22.14.0, which satisfies Nuxt 4.4.8 (`^22.12.0 || ^24.11.0 || >=26.0.0`) and does not satisfy 4.5 or 4.6. Node was not changed, so 4.6 was not claimed as tested.
+
+The official Nuxt 4 upgrade guide says moving into `app/` is optional when Nuxt detects the existing root layout. This candidate kept root `pages/`, `components/`, `server/` and the private runtime configuration. No visual redesign.
+
+After the pin, in the release worktree only: `npm run build` completed on Nuxt 4.4.8, Nitro 2.13.4, Vite 7.3.7 and Vue 3.5.43. `npm run test:cart-access` passed 59 tests. `node .output/server/index.mjs` listened on `127.0.0.1:3011` and returned homepage 200 and `/api/health` 200. That process was then stopped. Ports 3000 and 8000 were left running.
 
 ## What this plan does not do
 
