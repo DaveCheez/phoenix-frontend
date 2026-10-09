@@ -212,7 +212,7 @@ The older "repeated add increases quantity instead of duplicating a line" item i
 
 ## 6. Next concrete action
 
-Confirm the live DigitalOcean autodeploy switch and the live revision for the frontend app and the backend app. Disable autodeploy before any merge into `master` or `main`. Record those facts in `docs/release-plan.md`. Do not merge, deploy, or change quotas while doing that.
+Cutover is requested and not approved. Frozen pair: frontend `release/secure-storefront` storefront code `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410`; backend `release/secure-storefront` `ef1caaa2388474cc9956e4a3f1e49d70f41ce746`. Do not merge or push until the owner approves in Cursor and autodeploy has been read. DigitalOcean login was still required on 2026-10-09. Production database version, applied migrations and a backup point are UNVERIFIED. Contact code is included; local capture passed; real inbox delivery has not passed. Checkout stays off.
 
 ## Working rules
 
