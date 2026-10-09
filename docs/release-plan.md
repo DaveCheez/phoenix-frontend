@@ -130,7 +130,7 @@ App rollback does not unapply these migrations.
 
 | Item | Evidence on 9 October 2026 |
 | --- | --- |
-| Frontend candidate | Branch `release/secure-storefront`. Nuxt pin `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410` includes contact `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7` and `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. Not merged to `master`. Not deployed. |
+| Frontend candidate | Branch `release/secure-storefront` at `a3db3457ed2e7ff3094457bef9527afc162a749d`. Contains Nuxt pin `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410`, contact `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7` and `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. Not merged to `master`. Not deployed. |
 | Backend candidate | Branch `release/secure-storefront` at `ef1caaa2388474cc9956e4a3f1e49d70f41ce746`. Contains contact `6c474bfadcab3eb17ef5a095d002990608e638c9`, Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `main`. Not deployed. |
 | Tested environments | Local Nuxt `http://localhost:3000` and Django `http://127.0.0.1:8000`. Isolated `postgres:16` (server 16.15) for enabled budgets and for the Django 5.2 suite. Django 5.2 acceptance used Linux CPython 3.11.15 in a local image, not the DigitalOcean buildpack. No production-like staging app is recorded. |
 | Current live revisions | UNVERIFIED |
