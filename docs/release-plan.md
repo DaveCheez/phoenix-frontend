@@ -91,11 +91,13 @@ on that branch include `CONTACT_RECIPIENT_EMAIL`, `CONTACT_PROXY_SECRET`,
 requirement mentioned a name such as `CONTACT_TO_EMAIL`. The branch's actual
 recipient name is `CONTACT_RECIPIENT_EMAIL`.
 
-Status: separate, not ready to merge. Enquiry delivery remains a current
-priority. Real inbox delivery with Reply-To is not recorded. Do not drop the
-branches, do not defer them by omission, and do not merge them into the
-candidate until the migration graph below is resolved and the result is
-re-tested.
+Status: locally integrated on both `release/secure-storefront` branches.
+Local integration and testing may proceed. Real inbox delivery with Reply-To
+is still required before approving contact for production. That requirement
+is not passed. A captured or locmem message is not inbox-delivery evidence.
+The owner reports that exposed credentials were replaced. This plan does not
+record any credential value. Post-rotation runtime verification remains a
+release check.
 
 ## Migration graph
 
@@ -111,9 +113,16 @@ Foundation migrations that are not on backend `main`:
 
 `store/migrations/0026_product_option_configuration.py` is already on `main`.
 Contact's `store/migrations/0026_enquiry.py` reused number 0026 from an older
-base. Do not renumber the product-option migration if production has applied
-it. Whether production has applied it is UNVERIFIED. The enquiry change needs
-a new migration sequenced after the applied chain.
+base. Both committed migrations are kept. Enquiry creates `Enquiry` and
+depends on `0025_homeslide`. The product-option migration renames
+`ProductOption.price` to `price_adjustment` from the same parent. Those
+operations are independent, so the local candidate adds an empty dependency
+merge, `store/migrations/0027_merge_enquiry_and_product_options.py`. On
+2026-10-09 a disposable in-memory SQLite database applied
+`0026_product_option_configuration`, `0026_enquiry`, then `0027`. Neither
+0026 was renamed. Whether production has applied the product-option migration
+is still UNVERIFIED. Do not treat this local graph test as a production
+migration.
 
 App rollback does not unapply these migrations.
 
@@ -121,16 +130,16 @@ App rollback does not unapply these migrations.
 
 | Item | Evidence on 9 October 2026 |
 | --- | --- |
-| Frontend candidate | `208572716fc17fc7bcd343193c89b772ad279368` |
-| Backend candidate | `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`, which contains foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34` |
+| Frontend candidate | Branch `release/secure-storefront`, created from `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. Contact integration is the next commit on that branch. Not merged to `master`. Not deployed. |
+| Backend candidate | Branch `release/secure-storefront` at `6c474bfadcab3eb17ef5a095d002990608e638c9`. Contains Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `main`. Not deployed. |
 | Tested environments | Local Nuxt `http://localhost:3000` and Django `http://127.0.0.1:8000`. Isolated `postgres:16` (server 16.15) for enabled budgets and for the Django 5.2 suite. Django 5.2 acceptance used Linux CPython 3.11.15 in a local image, not the DigitalOcean buildpack. No production-like staging app is recorded. |
 | Current live revisions | UNVERIFIED |
 | Production source branches | Checked-in frontend spec: `DaveCheez/phoenix-frontend`, branch `master`, `deploy_on_push: true`. Checked-in backend spec: repo text `DaveCheez/pheonix`, branch `main`, `deploy_on_push: true`. Live platform settings were still unread on 2026-10-09T16:46:48Z. See "Autodeploy observation" below. |
-| Pending migrations | Cart `0004`–`0006` and orders `0001`–`0005`, relative to `main`. Contact's `0026_enquiry` collides in number with the product-option migration on `main`. Applied production set UNVERIFIED. |
+| Pending migrations | Cart `0004`–`0006`, orders `0001`–`0005`, and store `0026_enquiry` plus `0027_merge_enquiry_and_product_options`, relative to `main`. Both store 0026 migrations remain. Applied production set UNVERIFIED. |
 | Configuration names | Frontend: `NUXT_DJANGO_API_BASE`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_CHECKOUT_ENABLED`, `NUXT_CART_CSRF_SECRET`, `NUXT_CART_ORIGIN`, `NUXT_CART_APP_CREDENTIAL`, `NUXT_CART_TRUSTED_INGRESS`. Backend: `CART_APP_CREDENTIAL`, `CART_RATE_LIMIT_HMAC_KEY`, `CART_RATE_LIMIT_ENABLED`, `CART_RATE_LIMIT_POLICIES`, `CART_FRONTEND_RATE_LIMIT_POLICIES`. Contact, only if that blocker is included: `NUXT_CONTACT_PROXY_SECRET`, `CONTACT_RECIPIENT_EMAIL`, `CONTACT_PROXY_SECRET`, and the `EMAIL_*` / `DEFAULT_FROM_EMAIL` names. No values belong in this plan. |
-| Included | Guest basket access, both Start-feedback fixes, shared counters with enforcement left off, Retry-After forwarding, maintenance command with no schedule, order snapshots and deposit arithmetic, Django 5.2.18. |
-| Excluded | Contact until PV-CONTACT is resolved. Stripe checkout and balance payment. First-party reviews. A further Nuxt upgrade. Production quotas. A scheduled cleanup job. Turning on `digitalocean` trusted ingress before header provenance is verified. |
-| Approval and evidence still required | Live autodeploy confirmation and a recorded disable. Source review of the pair. Contact disposition. Migration and backup rehearsal. A tested basket-write freeze that covers direct Django paths. Staging of this pair. Approved quotas and monitor settings. HTTPS smoke. Recorded deployed revisions. |
+| Included | Guest basket access, both Start-feedback fixes, shared counters with enforcement left off, Retry-After forwarding, maintenance command with no schedule, order snapshots and deposit arithmetic, Django 5.2.18, and the contact enquiry feature for local integration only. |
+| Excluded from production approval | Real contact inbox delivery is still outstanding. Stripe checkout and balance payment. First-party reviews. Production quotas. A scheduled cleanup job. Turning on `digitalocean` trusted ingress before header provenance is verified. |
+| Approval and evidence still required | Live autodeploy control. Post-rotation runtime verification. Staging. Trusted ingress and HTTPS. Real contact delivery with Reply-To. Backup and migration rehearsal. A tested basket-write freeze. Approved quotas. Maintenance scheduling and monitoring. HTTPS smoke. Recorded deployed revisions. Neither candidate is production-ready while these remain open. |
 
 `NUXT_PUBLIC_CHECKOUT_ENABLED` stays false. Checkout is not part of this pair.
 
@@ -165,13 +174,30 @@ Remaining approval: sign in at DigitalOcean, open the apps that serve the produc
 Do this in order. Stop if a step is not evidenced.
 
 1. Read the live autodeploy control for both apps and both workflow files. Disable deploy-on-push before either production-branch merge. Record the live revision now, so the pair is not confused with what is already serving.
-2. Decide PV-CONTACT. Integrate it only after the enquiry migration is sequenced past the applied store chain, then re-test save-before-email and real Reply-To delivery. Leaving it unmerged has to be an explicit decision, not an omission.
+2. PV-CONTACT is in the local candidates. Keep testing save-before-email locally. Real Reply-To delivery to an approved inbox is still required before production approval. Do not mark that check passed from captured mail.
 3. Rehearse backup and restore of the production database. Record the migration list that restore returns to. Do not assume an application rollback undoes `cart` `0004`–`0006` or `orders` `0001`–`0005`.
 4. Put the exact candidate pair on a production-like staging environment. No staging app is recorded today. Confirm homepage slides, product-option lines, and Elfsight still behave. Exercise guest start, add, uncertain recovery, and a direct Django cart call.
 5. Prove a basket-operation maintenance switch that rejects basket writes on both the Nuxt routes and the direct Django cart API. The counter cleanup command does not do this. Do not open the basket while migrations or the cutover are in progress.
 6. Deploy the backend, run the reviewed migrations, and only then deploy the matching frontend. Enforcement stays off until `CART_RATE_LIMIT_*` values are approved. The maintenance command stays unscheduled until its three proposed checks exist and the cadence is approved.
 7. HTTPS smoke: homepage, contact, health, basket start, add, and recovery. Record both deployed revisions.
 8. Reopen basket writes only after that smoke. Paired rollback means the previous frontend with a backend that still understands guest ownership, or an explicit fix-forward. Do not return to UUID-only ownership.
+
+## Local contact integration
+
+Recorded 2026-10-09. Worktrees:
+
+- Backend `backend-release-secure-storefront`, branch `release/secure-storefront`, commit `6c474bfadcab3eb17ef5a095d002990608e638c9`.
+- Frontend `phoenix-frontend-release`, branch `release/secure-storefront`, contact merge not yet named in this paragraph until that commit exists.
+
+Backend checks on the saved Linux virtualenv (`phoenix-vanz-django52-py311:local`, CPython 3.11, Django 5.2.18), settings `base.settings_sqlite_tests`, in-memory SQLite, locmem email:
+
+- `manage.py test`: 332 tests OK, 15 skipped.
+- `manage.py test base.test_storage_settings store.test_enquiries`: 33 tests OK.
+- `migrate` then `showmigrations store`: both 0026 migrations and `0027_merge_enquiry_and_product_options` applied.
+
+The production storage subprocess needed synthetic contact and email settings so Django 5.2 `STORAGES` could still be imported after the contact production checks. Those values are test placeholders. They are not production credentials and they are not inbox delivery.
+
+Frontend checks in the release worktree only, Nuxt 3.21.11, after `npm ci` and `nuxt build`: `npm run test:cart-access` 59 passed, 0 failed. Ports 3000 and 8000 were not used.
 
 ## What this plan does not do
 

@@ -28,6 +28,8 @@ export default defineNuxtConfig({
     // Empty outside Nuxt development. "digitalocean" is an explicit
     // trusted-ingress assumption, not a live setting in this repository.
     cartTrustedIngress: "",
+    // Server-only shared secret for Django POST /contact/. Never expose publicly.
+    contactProxySecret: "",
 
     public: {
       siteUrl: "http://localhost:3000",
@@ -44,6 +46,11 @@ export default defineNuxtConfig({
 
   routeRules: {
     "/api/cart/**": {
+      headers: {
+        "cache-control": "private, no-store, no-cache, must-revalidate",
+      },
+    },
+    "/api/contact": {
       headers: {
         "cache-control": "private, no-store, no-cache, must-revalidate",
       },
