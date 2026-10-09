@@ -125,7 +125,7 @@ App rollback does not unapply these migrations.
 | Backend candidate | `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`, which contains foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34` |
 | Tested environments | Local Nuxt `http://localhost:3000` and Django `http://127.0.0.1:8000`. Isolated `postgres:16` (server 16.15) for enabled budgets and for the Django 5.2 suite. Django 5.2 acceptance used Linux CPython 3.11.15 in a local image, not the DigitalOcean buildpack. No production-like staging app is recorded. |
 | Current live revisions | UNVERIFIED |
-| Production source branches | Checked-in frontend spec: `DaveCheez/phoenix-frontend`, branch `master`, `deploy_on_push: true`. Checked-in backend spec: repo text `DaveCheez/pheonix`, branch `main`, `deploy_on_push: true`, and the file still describes a first deployment with replacement values. Live platform settings are UNVERIFIED. GitHub workflows run tests on `master`, `main` and `develop`. They do not deploy. |
+| Production source branches | Checked-in frontend spec: `DaveCheez/phoenix-frontend`, branch `master`, `deploy_on_push: true`. Checked-in backend spec: repo text `DaveCheez/pheonix`, branch `main`, `deploy_on_push: true`. Live platform settings were still unread on 2026-10-09T16:46:48Z. See "Autodeploy observation" below. |
 | Pending migrations | Cart `0004`–`0006` and orders `0001`–`0005`, relative to `main`. Contact's `0026_enquiry` collides in number with the product-option migration on `main`. Applied production set UNVERIFIED. |
 | Configuration names | Frontend: `NUXT_DJANGO_API_BASE`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_CHECKOUT_ENABLED`, `NUXT_CART_CSRF_SECRET`, `NUXT_CART_ORIGIN`, `NUXT_CART_APP_CREDENTIAL`, `NUXT_CART_TRUSTED_INGRESS`. Backend: `CART_APP_CREDENTIAL`, `CART_RATE_LIMIT_HMAC_KEY`, `CART_RATE_LIMIT_ENABLED`, `CART_RATE_LIMIT_POLICIES`, `CART_FRONTEND_RATE_LIMIT_POLICIES`. Contact, only if that blocker is included: `NUXT_CONTACT_PROXY_SECRET`, `CONTACT_RECIPIENT_EMAIL`, `CONTACT_PROXY_SECRET`, and the `EMAIL_*` / `DEFAULT_FROM_EMAIL` names. No values belong in this plan. |
 | Included | Guest basket access, both Start-feedback fixes, shared counters with enforcement left off, Retry-After forwarding, maintenance command with no schedule, order snapshots and deposit arithmetic, Django 5.2.18. |
@@ -133,6 +133,32 @@ App rollback does not unapply these migrations.
 | Approval and evidence still required | Live autodeploy confirmation and a recorded disable. Source review of the pair. Contact disposition. Migration and backup rehearsal. A tested basket-write freeze that covers direct Django paths. Staging of this pair. Approved quotas and monitor settings. HTTPS smoke. Recorded deployed revisions. |
 
 `NUXT_PUBLIC_CHECKOUT_ENABLED` stays false. Checkout is not part of this pair.
+
+## Autodeploy observation
+
+Observed 2026-10-09T16:46:48Z. This pass did not change App Platform.
+
+| | Frontend | Backend |
+| --- | --- | --- |
+| Live app name and ID | UNVERIFIED | UNVERIFIED |
+| Components | UNVERIFIED | UNVERIFIED |
+| Live source repository, branch, and directory | UNVERIFIED. Template says `DaveCheez/phoenix-frontend`, `master`. | UNVERIFIED. Template says `DaveCheez/pheonix`, `main`. Git remote is `DaveCheez/phoenix`. The live spelling was not read. |
+| Autodeploy before and after | UNVERIFIED / not changed | UNVERIFIED / not changed |
+| Active deployment ID, time, status, and source SHA | UNVERIFIED | UNVERIFIED |
+| Queued or in-progress platform deployment | UNVERIFIED | UNVERIFIED |
+
+Method: the browser had no DigitalOcean session. Opening the apps list returned the login page. `doctl` is not installed and no DigitalOcean token is set. No app spec was submitted, and no deploy, restart, or rebuild was requested.
+
+GitHub Actions, from the public workflow API and Actions pages, are ordinary CI:
+
+- `DaveCheez/phoenix-frontend`: one active workflow, `Frontend tests` (`.github/workflows/tests.yml`). Triggers are push and pull request to `master`, `main`, and `develop`. No queued or in-progress run. Latest completed run on the page is `master` `2d51619`.
+- `DaveCheez/phoenix`: one active workflow, `Backend tests` (`.github/workflows/tests.yml`), with the same trigger limits. No queued or in-progress run. Latest completed run on the page is `main` `9c708a0`.
+
+Neither workflow invokes App Platform, publishes an image, or uses schedule, `workflow_run`, or manual dispatch. Those CI checks stay enabled. They do not prove the live autodeploy checkbox is off. The GitHub SHAs above are CI revisions, not the commits serving traffic.
+
+A push of local `e8370b14` on `feature/guest-cart-access` does not match the GitHub Actions branch filters. It is still not approved, because the App Platform source branch is unread.
+
+Remaining approval: sign in at DigitalOcean, open the apps that serve the production domains, record each component's active deployment, and turn autodeploy off only through a control that does not deploy. If the control is an app-spec save that deploys, stop.
 
 ## Deployment sequence
 
