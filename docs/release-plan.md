@@ -130,8 +130,8 @@ App rollback does not unapply these migrations.
 
 | Item | Evidence on 9 October 2026 |
 | --- | --- |
-| Frontend candidate | Branch `release/secure-storefront`, contact commit `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7` on top of `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. The Nuxt pin commit follows it. Not merged to `master`. Not deployed. |
-| Backend candidate | Branch `release/secure-storefront` at `6c474bfadcab3eb17ef5a095d002990608e638c9`. Contains Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `main`. Not deployed. |
+| Frontend candidate | Branch `release/secure-storefront`. Nuxt pin `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410` includes contact `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7` and `aa80c8258ad2104423a8a1b52f7e5af838c7e138`. Not merged to `master`. Not deployed. |
+| Backend candidate | Branch `release/secure-storefront` at `ef1caaa2388474cc9956e4a3f1e49d70f41ce746`. Contains contact `6c474bfadcab3eb17ef5a095d002990608e638c9`, Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `main`. Not deployed. |
 | Tested environments | Local Nuxt `http://localhost:3000` and Django `http://127.0.0.1:8000`. Isolated `postgres:16` (server 16.15) for enabled budgets and for the Django 5.2 suite. Django 5.2 acceptance used Linux CPython 3.11.15 in a local image, not the DigitalOcean buildpack. No production-like staging app is recorded. |
 | Current live revisions | UNVERIFIED |
 | Production source branches | Checked-in frontend spec: `DaveCheez/phoenix-frontend`, branch `master`, `deploy_on_push: true`. Checked-in backend spec: repo text `DaveCheez/pheonix`, branch `main`, `deploy_on_push: true`. Live platform settings were still unread on 2026-10-09T16:46:48Z. See "Autodeploy observation" below. |
@@ -206,6 +206,21 @@ The frontend release candidate then pins `nuxt@4.4.8`. Current Nuxt 4.6.0 requir
 The official Nuxt 4 upgrade guide says moving into `app/` is optional when Nuxt detects the existing root layout. This candidate kept root `pages/`, `components/`, `server/` and the private runtime configuration. No visual redesign.
 
 After the pin, in the release worktree only: `npm run build` completed on Nuxt 4.4.8, Nitro 2.13.4, Vite 7.3.7 and Vue 3.5.43. `npm run test:cart-access` passed 59 tests. `node .output/server/index.mjs` listened on `127.0.0.1:3011` and returned homepage 200 and `/api/health` 200. That process was then stopped. Ports 3000 and 8000 were left running.
+
+## Local paired check
+
+Recorded 2026-10-09 after the Nuxt pin. Disposable PostgreSQL 16.15, database `phoenix_vanz_budget`, published only on `127.0.0.1`. Django ran from the saved Linux virtualenv in `phoenix-vanz-django52-py311:local`, sharing that database container's network so the application still used host `127.0.0.1`. Email was file capture, not an inbox. The normal servers on ports 3000 and 8000 were left running.
+
+`PHOENIX_ENABLED_BUDGET_VERIFICATION=1` and `PHOENIX_DJANGO_RUNTIME=linux-image`. Edge 155 headless. Result exit 0. All six checks passed:
+
+- explicit guest start, Enhanced paid option, cart reload showing the option and 125, quantity update from 1 to 2;
+- real CSRF denial, Retry-After 31, no mutation, cookie unchanged, then a later start returned 201;
+- real reset denial, cookie and basket unchanged;
+- real authenticated-cart denial, Retry-After present, basket unchanged;
+- contact HTTP 201 `ENQUIRY_RECEIVED`, database status `sent`, captured file Reply-To matched `pair-check@example.invalid`;
+- Django `/health/` 200, admin login 200, admin CSS 200 `text/css`, built Nuxt `/api/health` 200.
+
+The captured message is not real inbox delivery. Contact is not approved for production.
 
 ## What this plan does not do
 

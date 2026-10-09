@@ -5,16 +5,26 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
-import { lstat, mkdtemp, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launch, sleep, waitFor } from "./guest-cart-browser.mjs";
 
 const ENABLED = process.env.PHOENIX_ENABLED_BUDGET_VERIFICATION === "1";
+const LINUX_RUNTIME = process.env.PHOENIX_DJANGO_RUNTIME === "linux-image";
 const FRONTEND = join(import.meta.dirname, "..");
-const BACKEND = "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\backend";
-const PYTHON = "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\venv\\Scripts\\python.exe";
+const BACKEND = LINUX_RUNTIME
+  ? "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\backend-release-secure-storefront"
+  : "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\backend";
+const PYTHON = LINUX_RUNTIME
+  ? process.execPath
+  : "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-backend-digitalocean-ready\\venv\\Scripts\\python.exe";
+const DJANGO52_VENV = "C:\\Users\\davec\\Dev\\Phoenix Vanz\\phoenix-vanz-django52-venv";
+
+function pythonArgs(args) {
+  return LINUX_RUNTIME ? [join(FRONTEND, "tests", "django52-python.mjs"), ...args] : args;
+}
 const HOST = "127.0.0.1";
 const IMAGE = "postgres:16";
 const ADMIN_USER = "phoenix_vanz_budget_admin";
@@ -43,12 +53,14 @@ const secrets = {
   credential: randomBytes(32).toString("hex"),
   csrf: randomBytes(32).toString("hex"),
   hmac: randomBytes(32).toString("hex"),
+  contact: randomBytes(32).toString("hex"),
 };
 
 const state = {
   container: `phoenix-vanz-budget-${process.pid}`,
   workspace: "",
   media: "",
+  mail: "",
   envFile: "",
   django: null,
   nuxt: null,
@@ -217,7 +229,7 @@ async function djangoShell(env, script) {
   const file = join(tmpdir(), `phoenix-budget-shell-${process.pid}-${randomBytes(4).toString("hex")}.py`);
   await writeFile(file, script);
   try {
-    const result = await run(PYTHON, ["manage.py", "shell", "-c", `exec(compile(open(${JSON.stringify(file)}, encoding="utf-8").read(), "budget_shell", "exec"))`], {
+    const result = await run(PYTHON, pythonArgs(["manage.py", "shell", "-c", `exec(compile(open(${JSON.stringify(file)}, encoding="utf-8").read(), "budget_shell", "exec"))`]), {
       cwd: BACKEND,
       env,
     });
@@ -248,6 +260,10 @@ function baseEnv(pgPort) {
     CART_RATE_LIMIT_ENABLED: "true",
     CART_RATE_LIMIT_POLICIES: JSON.stringify(POLICIES.CART_RATE_LIMIT_POLICIES),
     CART_FRONTEND_RATE_LIMIT_POLICIES: JSON.stringify(POLICIES.CART_FRONTEND_RATE_LIMIT_POLICIES),
+    CONTACT_PROXY_SECRET: secrets.contact,
+    CONTACT_RECIPIENT_EMAIL: "capture@example.invalid",
+    DEFAULT_FROM_EMAIL: "capture@example.invalid",
+    PHOENIX_VANZ_EMAIL_FILE_PATH: "/host-mail",
     PYTHONIOENCODING: "utf-8",
     PYTHONUNBUFFERED: "1",
   };
@@ -403,6 +419,7 @@ async function main() {
   const started = await run("docker", [
     "run", "-d", "--name", state.container,
     "--publish", `${HOST}:${pgPort}:5432`,
+    "--publish", `${HOST}:${djangoPort}:${djangoPort}`,
     "--env-file", state.envFile,
     IMAGE,
   ]);
@@ -443,7 +460,15 @@ async function main() {
   if (rules.code !== 0) fail(new Error(rules.stderr));
   if (rules.stdout.includes("trust")) throw new Error("PostgreSQL authentication still allows trust.");
 
-  const migrated = await run(PYTHON, ["manage.py", "migrate", "--noinput"], { cwd: BACKEND, env });
+  if (LINUX_RUNTIME) {
+    state.mail = await mkdtemp(join(tmpdir(), "phoenix-pair-mail-"));
+    env.PHOENIX_RELEASE_BACKEND = BACKEND;
+    env.PHOENIX_DJANGO52_VENV = DJANGO52_VENV;
+    env.PHOENIX_DJANGO_NETWORK_CONTAINER = state.container;
+    env.PHOENIX_DJANGO_INTERNAL_POSTGRES_PORT = "5432";
+    env.PHOENIX_HOST_MAIL_DIR = state.mail;
+  }
+  const migrated = await run(PYTHON, pythonArgs(["manage.py", "migrate", "--noinput"]), { cwd: BACKEND, env });
   if (migrated.code !== 0) fail(new Error(migrated.stderr || migrated.stdout));
   const seeded = await djangoShell(env, SEED_SCRIPT);
   const inspected = await djangoShell(env, INSPECT_SCRIPT);
@@ -454,7 +479,7 @@ async function main() {
   console.log(`database-ready postgres=${inspected.postgres} migration=0006`);
   state.media = inspected.media || "";
 
-  state.django = spawn(PYTHON, ["manage.py", "runserver", `${HOST}:${djangoPort}`, "--noreload"], {
+  state.django = spawn(PYTHON, pythonArgs(["manage.py", "runserver", `${HOST}:${djangoPort}`, "--noreload"]), {
     cwd: BACKEND,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -495,6 +520,7 @@ async function main() {
     NUXT_CART_CSRF_SECRET: secrets.csrf,
     NUXT_CART_APP_CREDENTIAL: secrets.credential,
     NUXT_DJANGO_API_BASE: `${djangoOrigin}/api`,
+    NUXT_CONTACT_PROXY_SECRET: secrets.contact,
     NUXT_CART_TRUSTED_INGRESS: "",
     NUXT_TELEMETRY_DISABLED: "1",
   };
@@ -844,15 +870,174 @@ async function main() {
     }
   }
 
-  try {
-    console.log("scenario-csrf");
-    await scenarioCsrf();
-    console.log("scenario-reset");
-    await scenarioReset();
-    console.log("scenario-authenticated");
-    await scenarioAuthenticated();
-  } catch (error) {
-    results.push({ id: "harness", status: "FAIL", detail: redact(error instanceof Error ? error.stack || error.message : error) });
+  async function scenarioShopper() {
+    const id = "guest-paid-option-quantity";
+    const context = await state.browser.context();
+    const page = await state.browser.page(context);
+    try {
+      await page.open(`${origin}/product/${SLUG}`);
+      await waitUntil(async () => (await page.text()).includes("Start a new basket") || null, 20000, "start control");
+      const started = Date.now();
+      if (!(await page.clickButton("Start a new basket"))) throw new Error("Start could not be clicked.");
+      await waitUntil(async () => /add to cart/i.test(await page.text()) || null, 20000, "add control");
+      if (!(await page.clickLabel("Enhanced"))) throw new Error("Enhanced could not be selected.");
+      if (!(await page.clickLabel("None"))) throw new Error("None could not be selected.");
+      if (!(await page.clickButton("Add to Cart"))) throw new Error("Add could not be clicked.");
+      await waitUntil(async () => (await page.text()).includes("added to your cart") || null, 20000, "confirmed add");
+      await page.open(`${origin}/cart`);
+      await waitUntil(async () => {
+        const ready = await page.eval(`(() => { const button = document.querySelector('button[aria-label^="Increase "]'); return Boolean(button && !button.disabled); })()`);
+        return ready || null;
+      }, 20000, "quantity control");
+      const reloaded = await page.text();
+      const beforeQty = await page.eval(`document.querySelector('input[type=number]')?.value || ""`);
+      const mark = Date.now();
+      if (!(await page.clickIncrease())) throw new Error("Quantity increase could not be clicked.");
+      await waitUntil(async () => cartRows(page, mark).some((entry) => entry.path === "/api/cart/update" && entry.status === 200) || null, 20000, "quantity update");
+      await sleep(1000);
+      const afterQty = await page.eval(`document.querySelector('input[type=number]')?.value || ""`);
+      const rows = cartRows(page, mark);
+      const passed = reloaded.includes("Enhanced")
+        && reloaded.includes("125")
+        && beforeQty === "1"
+        && afterQty === "2"
+        && rows.some((entry) => entry.path === "/api/cart/update" && entry.status === 200);
+      results.push({
+        id,
+        status: passed ? "PASS" : "FAIL",
+        reloadedHasEnhanced: reloaded.includes("Enhanced"),
+        reloadedHasPaidTotal: reloaded.includes("125"),
+        quantityBefore: beforeQty,
+        quantityAfter: afterQty,
+        rows: safeRows(rows),
+      });
+    } finally {
+      await state.browser.dispose(context);
+    }
+  }
+
+  async function scenarioContact() {
+    const id = "contact-captured-reply-to";
+    const shopper = "pair-check@example.invalid";
+    const response = await fetch(`${origin}/api/contact`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        origin,
+      },
+      body: JSON.stringify({
+        name: "Pair Check",
+        email: shopper,
+        phone: "01234 567890",
+        message: "Local release assembly check.",
+        website: "",
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    const names = state.mail ? await readdir(state.mail) : [];
+    const captured = [];
+    for (const name of names) {
+      captured.push(await readFile(join(state.mail, name), "utf8"));
+    }
+    const replyLine = captured.map((text) => text.split(/\r?\n/).find((line) => line.toLowerCase().startsWith("reply-to:")) || "").find(Boolean) || "";
+    const saved = await djangoShell(env, `
+from store.models import Enquiry
+row = Enquiry.objects.order_by("-id").first()
+print("BUDGET_FACT enquiry=" + (row.email if row else ""))
+print("BUDGET_FACT email_status=" + (row.email_status if row else ""))
+print("BUDGET_FACT reference=" + (row.reference if row else ""))
+`);
+    const passed = response.status === 201
+      && body.code === "ENQUIRY_RECEIVED"
+      && saved.enquiry === shopper
+      && saved.email_status === "sent"
+      && replyLine.toLowerCase() === `reply-to: ${shopper}`;
+    results.push({
+      id,
+      status: passed ? "PASS" : "FAIL",
+      httpStatus: response.status,
+      code: body.code || "",
+      saved: saved.email_status || "",
+      replyToMatches: replyLine.toLowerCase() === `reply-to: ${shopper}`,
+      capturedFiles: names.length,
+      inboxDelivery: false,
+    });
+  }
+
+  async function scenarioAssets() {
+    const id = "health-admin-static";
+    const djangoHealth = await fetch(`${djangoOrigin}/health/`);
+    const admin = await fetch(`${djangoOrigin}/admin/login/`);
+    const html = await admin.text();
+    const href = html.match(/href="([^"]+\.css[^"]*)"/);
+    let cssStatus = 0;
+    let cssType = "";
+    if (href) {
+      const css = await fetch(new URL(href[1], djangoOrigin));
+      cssStatus = css.status;
+      cssType = css.headers.get("content-type") || "";
+      await css.arrayBuffer();
+    }
+    const healthPort = await freePort();
+    const built = spawn(process.execPath, [join(FRONTEND, ".output", "server", "index.mjs")], {
+      cwd: FRONTEND,
+      env: {
+        ...process.env,
+        HOST,
+        PORT: String(healthPort),
+        NITRO_HOST: HOST,
+        NITRO_PORT: String(healthPort),
+        NUXT_DJANGO_API_BASE: `${djangoOrigin}/api`,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    ownProcess("built-nuxt", built, healthPort);
+    let builtHealth = 0;
+    try {
+      await waitUntil(async () => {
+        try {
+          const response = await fetch(`http://${HOST}:${healthPort}/api/health`);
+          builtHealth = response.status;
+          return response.status === 200 ? true : null;
+        } catch {
+          return null;
+        }
+      }, 20000, "built server health");
+    } catch {
+      builtHealth = 0;
+    }
+    const passed = djangoHealth.status === 200 && admin.status === 200 && cssStatus === 200 && cssType.includes("text/css") && builtHealth === 200;
+    results.push({
+      id,
+      status: passed ? "PASS" : "FAIL",
+      djangoHealth: djangoHealth.status,
+      admin: admin.status,
+      cssStatus,
+      cssType,
+      builtHealth,
+    });
+  }
+
+  for (const [label, fn] of [
+    ["scenario-csrf", scenarioCsrf],
+    ["scenario-reset", scenarioReset],
+    ["scenario-shopper", scenarioShopper],
+    ["scenario-authenticated", scenarioAuthenticated],
+    ["scenario-contact", scenarioContact],
+    ["scenario-assets", scenarioAssets],
+  ]) {
+    console.log(label);
+    try {
+      await fn();
+    } catch (error) {
+      results.push({
+        id: label,
+        status: "FAIL",
+        detail: redact(error instanceof Error ? error.message : error),
+      });
+    }
   }
 
   const summary = {
@@ -906,6 +1091,14 @@ async function cleanup() {
     await run("docker", ["rm", "-f", "-v", state.container]);
     const left = await run("docker", ["ps", "-aq", "--filter", `name=^${state.container}$`]);
     shutdown.push({ name: "postgres", containerRemoved: left.stdout.trim() === "" });
+    if (LINUX_RUNTIME) {
+      const listeners = await run("netstat", ["-ano"]);
+      for (const item of shutdown) {
+        if (item.name === "django" && item.port) {
+          item.portFree = !portIsListening(listeners.stdout, item.port);
+        }
+      }
+    }
   }
   if (state.workspace) {
     try {
@@ -918,6 +1111,7 @@ async function cleanup() {
   if (state.media && state.media.includes("phoenix-vanz-pgtest-media-")) {
     await rm(state.media, { recursive: true, force: true }).catch(() => {});
   }
+  if (state.mail) await rm(state.mail, { recursive: true, force: true }).catch(() => {});
   if (state.envFile) await rm(state.envFile, { force: true }).catch(() => {});
   return shutdown;
 }
