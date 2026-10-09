@@ -1,8 +1,8 @@
 # Cross-repository merge and release plan
 
-Reviewed 9 October 2026 from the commits named below. This plan has not been
-executed. Do not merge, push, deploy, or change platform settings from this
-document.
+Reviewed 9 October 2026 from the commits named below. GitHub has since
+merged both candidates. That merge is not a deployment. Do not deploy or
+change platform settings from this document.
 
 `todos.txt` is the status source. Test transcripts stay in
 `docs/guest-cart-access.md` and in the backend documents named below.
@@ -130,8 +130,8 @@ App rollback does not unapply these migrations.
 
 | Item | Evidence on 9 October 2026 |
 | --- | --- |
-| Frontend candidate | Branch `release/secure-storefront`. Storefront code is Nuxt 4.4.8 pin `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410`, including contact `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7`. Frozen for cutover. Not merged to `master`. Not deployed. |
-| Backend candidate | Branch `release/secure-storefront` at `ef1caaa2388474cc9956e4a3f1e49d70f41ce746`. Contains contact `6c474bfadcab3eb17ef5a095d002990608e638c9`, Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `main`. Not deployed. |
+| Frontend candidate | MERGED, NOT DEPLOYED. `DaveCheez/phoenix-frontend` pull request 11 merged to `master` as `67677f5c71c984ac3ae20dbc9435208b7c528cea`. Storefront code is Nuxt 4.4.8 pin `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410`, including contact `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7`. `build-and-smoke-test` succeeded on `631c555f5e03e1b1b15af731409fe0cb0ac813dc`. |
+| Backend candidate | MERGED, NOT DEPLOYED. `DaveCheez/phoenix` pull request 12 merged to `main` as `af42b896f7845b0e8c872ec7280137ea35cf7802`. Head `20a217adcceb94065d03e57f7f1e779ae0433f05` contains contact `6c474bfadcab3eb17ef5a095d002990608e638c9`, Django 5.2 `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` and foundation `7bc85397c2f0287226cf1fb790b6270ab8951c34`. The `test` check succeeded. Email setup remains pending. |
 | Tested environments | Local Nuxt `http://localhost:3000` and Django `http://127.0.0.1:8000`. Isolated `postgres:16` (server 16.15) for enabled budgets and for the Django 5.2 suite. Django 5.2 acceptance used Linux CPython 3.11.15 in a local image, not the DigitalOcean buildpack. No production-like staging app is recorded. |
 | Current live revisions | UNVERIFIED |
 | Production source branches | Checked-in frontend spec: `DaveCheez/phoenix-frontend`, branch `master`, `deploy_on_push: true`. Checked-in backend spec: repo text `DaveCheez/pheonix`, branch `main`, `deploy_on_push: true`. Live platform settings were still unread on 2026-10-09T16:46:48Z. See "Autodeploy observation" below. |

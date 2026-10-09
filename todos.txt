@@ -13,7 +13,7 @@ Reviewed code, not this documentation edit:
 - Backend `feature/order-foundation` `7bc85397c2f0287226cf1fb790b6270ab8951c34`
 - Backend `upgrade/django-5-2` `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`
 
-The merge path is `docs/release-plan.md`. It has not been executed.
+The merge path is `docs/release-plan.md`. GitHub merges are recorded in section 6. They are not a deployment.
 
 ## Why the 28 September list was stale
 
@@ -108,7 +108,7 @@ Implemented and merged to frontend `master` (`2d5161989aa1f5426e391a1b9175b30be7
 
 ### PV-GUEST — guest basket access
 
-Implemented on `feature/guest-cart-access` through `208572716fc17fc7bcd343193c89b772ad279368`, paired with backend work through `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Not merged to `master` or `main`. Not deployed.
+Implemented on `feature/guest-cart-access` through `208572716fc17fc7bcd343193c89b772ad279368`, paired with backend work through `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Merged to `master` and `main` by the pull requests in section 6. Not deployed.
 
 Covers guest cookies, application authentication, origin and CSRF checks, Web Lock `phoenix-guest-cart`, per-tab queue, explicit recovery, and no automatic retry. Local Edge checks and `npm run test:cart-access` are recorded in `docs/guest-cart-access.md`. Production HTTPS `__Host-phoenix_guest` is not verified. `NUXT_CART_TRUSTED_INGRESS` is empty in the normal development configuration.
 
@@ -173,7 +173,7 @@ Deferred. Do not start it unless explicitly requested. Elfsight stays until a re
 
 ### PV-NUXT — further Nuxt upgrade
 
-Locally done on frontend `release/secure-storefront` only. Exact pin `nuxt@4.4.8`. This machine is Node v22.14.0. Nuxt 4.4.8 engines are `^22.12.0 || ^24.11.0 || >=26.0.0`. Nuxt 4.5.2 requires Node `^22.19.0` and Nuxt 4.6.0 requires `^22.22.3`, so those newer releases were not installed and were not tested. The official Nuxt 4 guide says the root layout can stay when Nuxt detects it. This candidate kept the existing root `pages/` layout. `npm run test:cart-access` passed 59 tests. `npm run build` completed, and `node .output/server/index.mjs` on `127.0.0.1:3011` returned homepage 200 and `/api/health` 200. Not merged to `master`. Not deployed. Node was not upgraded.
+Exact pin `nuxt@4.4.8` is on frontend `release/secure-storefront` and is included in the `master` merge in section 6. This machine is Node v22.14.0. Nuxt 4.4.8 engines are `^22.12.0 || ^24.11.0 || >=26.0.0`. Nuxt 4.5.2 requires Node `^22.19.0` and Nuxt 4.6.0 requires `^22.22.3`, so those newer releases were not installed and were not tested. The official Nuxt 4 guide says the root layout can stay when Nuxt detects it. This candidate kept the existing root `pages/` layout. `npm run test:cart-access` passed 59 tests. `npm run build` completed, and `node .output/server/index.mjs` on `127.0.0.1:3011` returned homepage 200 and `/api/health` 200. Not deployed. Node was not upgraded.
 
 ### PV-COPY and older open requirements
 
@@ -212,7 +212,7 @@ The older "repeated add increases quantity instead of duplicating a line" item i
 
 ## 6. Next concrete action
 
-Cutover is requested and not approved. Frozen pair: frontend `release/secure-storefront` storefront code `b6af3a9b59a5004cd58a4eea4d592ce0b79ee410`; backend `release/secure-storefront` `ef1caaa2388474cc9956e4a3f1e49d70f41ce746`. Do not merge or push until the owner approves in Cursor and autodeploy has been read. DigitalOcean login was still required on 2026-10-09. Production database version, applied migrations and a backup point are UNVERIFIED. Contact code is included; local capture passed; real inbox delivery has not passed. Checkout stays off.
+MERGED, NOT DEPLOYED. GitHub confirmed both merges on 9 October 2026. Frontend `DaveCheez/phoenix-frontend` pull request 11 is in `master` as `67677f5c71c984ac3ae20dbc9435208b7c528cea`; `build-and-smoke-test` succeeded on `631c555f5e03e1b1b15af731409fe0cb0ac813dc`. Backend `DaveCheez/phoenix` pull request 12 is in `main` as `af42b896f7845b0e8c872ec7280137ea35cf7802`; `test` succeeded on `20a217adcceb94065d03e57f7f1e779ae0433f05`. The release branches were not deleted. No DigitalOcean, Neon, DNS, email, or autodeploy change was made, and no deployment was started. Live revisions, production database version, applied migrations and a backup point remain UNVERIFIED. Email setup remains pending: contact code is merged, local capture passed, and real inbox delivery has not passed. Checkout stays off.
 
 ## Working rules
 
