@@ -1,218 +1,245 @@
 # Phoenix Vanz project tracker
 
-Last reviewed: 9 October 2026
-Previous review recorded in this file: 28 September 2026
+Last reviewed: 16 October 2026
+Previous review recorded in this file: 9 October 2026
 
-This file is the project status source. Detailed test transcripts stay in
-their own documents. This review did not rerun test suites and did not probe
-the live site.
+This file is the project status source. The owner reports that the current
+release is deployed and the requested live basket check worked. That is
+owner-confirmed evidence. It is not a production test of every feature.
+This pass did not read DigitalOcean, deployment IDs, or live commit hashes.
+Do not invent those hashes. Do not restart release assembly.
 
-Reviewed code, not this documentation edit:
-
-- Frontend `feature/guest-cart-access` `208572716fc17fc7bcd343193c89b772ad279368`
-- Backend `feature/order-foundation` `7bc85397c2f0287226cf1fb790b6270ab8951c34`
-- Backend `upgrade/django-5-2` `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`
-
-The merge path is `docs/release-plan.md`. GitHub merges are recorded in section 6. They are not a deployment.
-
-## Why the 28 September list was stale
-
-`todos.txt` was last changed by frontend `a968071` on 28 September 2026
-("added agents.md"). That commit is an ancestor of both `master` and
-`feature/guest-cart-access`. The current branch was not an older checkout.
-Later homepage, product-option, guest-cart, order and Django 5.2 commits did
-not update this file.
+Read-only journey on 16 October 2026, desktop about 1041px and phone 390px,
+on `https://www.phoenixvanz.com`: home, `/shop/roof-racks`,
+`/product/trailblazer`, `/cart`, `/contact`, and `/checkout`. No contact
+form was submitted, no basket was started, no product was added, and no
+payment was made.
 
 ## Status words
 
 - Implemented: the behaviour is in a named commit.
 - Tested: a recorded local or isolated check exists. The transcript stays in the linked document.
 - Merged: the commit is in the named production source branch.
-- Deployed: a recorded live revision proves it. A checked-in app spec is not that proof.
-- Deferred: agreed, and not part of the current release.
+- Deployed: a recorded live revision or owner-confirmed live behaviour proves it. A checked-in app spec is not that proof.
+- Deferred: agreed, and not part of the current work.
 
-Committed does not mean merged. Merged to a feature branch does not mean deployed.
+Committed does not mean merged. Merged does not, by itself, mean deployed.
+One live basket check does not mark the rest of the release production-tested.
 
 ## Standing commercial terms
 
 These remain in force. They are not permission to enable checkout.
 
-- Workshop fitting only, at the Accrington workshop. Delivery is not offered.
-- Fitting is included at no charge.
-- Prices do not add a VAT charge.
-- A future checkout takes a one-third deposit. The balance is due on completion.
-- Deposit and balance are calculated on the server from the agreed order total.
-  `orders/money.py` on the foundation branch uses
-  `deposit_pence = (total_pence + 1) // 3`.
-- The cart page already states workshop fitting and no delivery. Lead time,
-  the no-charge fitting statement, and the no-VAT statement are not yet a
-  complete customer-facing price explanation. PV-COPY remains open.
+Owner-confirmed on 16 October 2026 for the current website:
 
-## 1. Current release scope
+- Every website product is made to order.
+- Installation is at the Phoenix Vanz workshop in Accrington, Lancashire.
+- Fitting is included in the displayed website price.
+- No delivery.
+- Phoenix Vanz does not add VAT.
+- Typical lead time is approximately 4 weeks.
 
-The candidate pair is the guest-cart and order-foundation line, including
-the isolated Django 5.2 upgrade, integrated onto the production source
-branches only after the blockers in section 3.
+A future checkout takes a one-third deposit. The balance is due on completion.
+Deposit and balance are calculated on the server from the agreed order total.
+`orders/money.py` uses `deposit_pence = (total_pence + 1) // 3`.
+PV-COPY is implemented on this branch. It is not deployed.
 
-| | Candidate | Production source named by the checked-in spec |
-| --- | --- | --- |
-| Frontend | `feature/guest-cart-access` `208572716fc17fc7bcd343193c89b772ad279368` | `master` |
-| Backend | `upgrade/django-5-2` `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6` | `main` |
+## Completed and deployed baseline
 
-`upgrade/django-5-2` already contains `feature/order-foundation`. Fast-forward
-is possible. See the runbook. Do not treat the feature-branch checkpoints as
-extra cherry-picks.
+The merged release is the deployed baseline: guest basket, product options,
+contact save path, internal order snapshots, and Django 5.2.18. Frontend
+`master` includes pull request 11 (`67677f5c71c984ac3ae20dbc9435208b7c528cea`).
+Backend `main` includes pull request 12
+(`af42b896f7845b0e8c872ec7280137ea35cf7802`) and save-only pull request 14
+(`735441cf26be301275821522b356e1cfc226095b`). Those are merge commits, not
+hashes read from the live apps.
 
-Included in those candidates, still not deployed:
+This pass saw, without writing a record:
 
-- guest session, application authentication, CSRF, Web Locks, recovery and both Start-feedback fixes;
-- shared counters, CSRF and reset budgets, Retry-After forwarding, with enforcement off until quotas are approved;
-- the maintenance command, without a schedule or monitor;
-- internal order snapshots and one-third deposit arithmetic, without Stripe or checkout;
-- Django 5.2.18.
-
-Not in those candidates:
-
-- contact enquiry branches (PV-CONTACT), which are a current priority and a blocker, not a silent deferral;
-- Stripe checkout and balance payment (PV-CHECKOUT), deferred;
-- first-party reviews (PV-REVIEWS), deferred. Elfsight stays.
-
-Live revisions, whether the platform autodeploy matches the checked-in spec,
-and which migrations production has already applied: UNVERIFIED.
-
-## 2. Implemented or tested, awaiting integration or deployment
-
-Transcripts: `docs/guest-cart-access.md` in this repository;
-`docs/guest-session-access.md`, `docs/cart-counter-maintenance.md`,
-`docs/postgresql-verification.md` and `docs/django-5-2-upgrade.md` in the
-backend repository. The Django 5.2 note is on `upgrade/django-5-2`.
-
-### PV-OPTIONS — product options and basket lines
-
-Implemented and merged to frontend `master` (`2d5161989aa1f5426e391a1b9175b30be791d013`, pull request 10) and backend `main` (`9c708a0809c1ebef15cec109a0f39c409f35aa4d`, pull requests 9 and 10). Live revision UNVERIFIED.
-
-- Required and optional groups use radios.
-- Option surcharges and basket totals come from the server.
-- Supersedes the older deployed sentence "repeated add-to-cart increases quantity rather than creating duplicate lines."
-  Same product and same configuration increments that line.
-  A different configuration stays a separate line.
-  The old sentence is false for different configurations and must not be used as acceptance.
-
-### PV-SEO — homepage metadata and accessibility
-
-`fix/homepage-seo-accessibility` `f543134954ff29370b18652b1c1a4f03e005b80a` is merged to `master` by pull request 9. Live revision UNVERIFIED. This review did not re-check every page title, canonical, Open Graph image or keyboard path. Remaining gaps stay open under PV-COPY until a page-by-page check says otherwise.
-
-### PV-REVIEWS-504 — unused Google reviews proxy
-
-`fix/reviews-console-errors` `00717297fb4796f814f6a037eeb2ff56548a9fe0` is merged to `master` by pull request 8. It removes the failing first-party fetch while Elfsight stays. Live revision UNVERIFIED. The Django reviews product remains PV-REVIEWS.
+- Homepage title, description, and canonical `https://phoenixvanz.com/`.
+  Three slides, with pause. Category links. Elfsight iframe titled
+  "Phoenix Vanz Google customer reviews".
+- Roof racks listed with prices.
+- Trailblazer radios, base £1750.00, XLWB +£200.00, and the estimate
+  sentence. "Start a new basket" and Add to Cart are present on desktop
+  and at 390px. Add was not used.
+- Empty basket prompt. Cart count stayed 0.
+- Contact form: name, email, optional phone, message, Accrington address,
+  and phone. Not submitted.
+- Checkout: "Online payment is temporarily unavailable", with a contact link.
+  Deliberately disabled. Release `nuxt.config.ts` keeps `checkoutEnabled` false.
+- Phone menu opens to Contact and the basket.
 
 ### PV-GUEST — guest basket access
 
-Implemented on `feature/guest-cart-access` through `208572716fc17fc7bcd343193c89b772ad279368`, paired with backend work through `7bc85397c2f0287226cf1fb790b6270ab8951c34`. Merged to `master` and `main` by the pull requests in section 6. Not deployed.
-
-Covers guest cookies, application authentication, origin and CSRF checks, Web Lock `phoenix-guest-cart`, per-tab queue, explicit recovery, and no automatic retry. Local Edge checks and `npm run test:cart-access` are recorded in `docs/guest-cart-access.md`. Production HTTPS `__Host-phoenix_guest` is not verified. `NUXT_CART_TRUSTED_INGRESS` is empty in the normal development configuration.
+Deployed for the path the owner checked. This pass saw only the empty-basket
+start prompt. Recovery, CSRF, the Web Lock, and production `__Host-` cookies
+were not rechecked.
 
 ### PV-START — preparation feedback
 
-Product Start: `f66b42d752e640af476f370436b7c7b819770824`. Cart Start: `208572716fc17fc7bcd343193c89b772ad279368`. Both are on the frontend feature branch only.
+"Start a new basket" is on the product and the empty basket. The
+preparation-error sentences were not exercised.
 
-A CSRF failure before create is dispatched shows "The basket change was not sent. Try again." A dispatched write with an uncertain response keeps the uncertainty wording. Access-unavailable and missing-cart recovery stay distinct. Success does not add the product by itself. The cart-page check used an injected 429 and is not counter-enforcement evidence.
+### PV-OPTIONS — product options and basket lines
 
-### PV-BUDGET — shared counters
-
-Backend enforcement and the CSRF/reset budget endpoint are on `feature/order-foundation` (`5046f1102f5b3b74bfa97c6359dc604e9ad12209` and the surrounding counter commits). Nuxt forwards Retry-After from `f703a1b6d5c587069baf5a6859069d5d7372bf74`. Enabled-budget evidence is the isolated PostgreSQL run recorded on 8 October 2026, not production. `CART_RATE_LIMIT_ENABLED` defaults false. Quotas are not approved.
-
-### PV-MAINT-CMD — counter cleanup command
-
-`manage.py cart_rate_limit_maintenance` is on `2b7ea84ef0035f0865ef2972359ba85416abf729`. Scheduling and monitoring are written only as a proposal in `docs/cart-counter-maintenance.md` (`7bc85397c2f0287226cf1fb790b6270ab8951c34`). Nothing in CI or the checked-in app spec runs the command. No monitor is connected. This command does not close the basket.
-
-### PV-ORDERS — snapshots and deposit arithmetic
-
-`5d3d36e807396b985cb5d40a25bbe14e28c7be34` and `214785ad180099666eab6934fa182023a036b01c`, plus isolated PostgreSQL verification `e2fd1125708e6c08e222664fc9cd98f83dbf4ef7`. On the foundation branch only. Checkout stays disabled in `nuxt.config.ts` (`checkoutEnabled: false`) and in the checked-in frontend app spec. No Stripe payment, webhook or balance page is accepted.
-
-### PV-DJANGO52 — Django 5.2.18
-
-One commit, `bb92c95c127a6dc5dfe1271b0686b73cc3c493b6`, on top of the foundation HEAD. Isolated Linux/Python 3.11.15 and PostgreSQL 16.15 verification is recorded in `docs/django-5-2-upgrade.md`. Not a DigitalOcean buildpack run. Production PostgreSQL major version is unrecorded. No new migration.
+Live Trailblazer groups are radios with included or +£ amounts. Same product
+and same configuration increments that line. A different configuration stays
+a separate line. That quantity rule was not rechecked live. The older
+"repeated add always increases quantity" sentence stays retired.
 
 ### PV-HOME — homepage slides and image loading
 
-The 28 September tracker recorded the slideshow, WebP uploads, fallback loading and the performance baseline as deployed. Those commits are ancestors of `master`. This review did not re-measure production. Do not regress the homepage image-loading optimisation. Later image follow-up stays in section 4.
+Slides rendered. Performance was not remeasured. Do not regress the
+homepage image-loading optimisation.
 
-## 3. Release blockers, in dependency order
+### PV-SEO — homepage metadata and accessibility
 
-1. PV-AUTODEPLOY. Still open. Observed 2026-10-09T16:46:48Z. No DigitalOcean session, `doctl`, or API token was available. `https://cloud.digitalocean.com/apps` redirected to the login page, so app IDs, components, live repository spelling, branches, autodeploy flags, and active deployment SHAs were not read and were not changed. The checked-in specs still are not live evidence. The backend template name `DaveCheez/pheonix` remains unresolved against Git remote `DaveCheez/phoenix`. Public GitHub Actions, read without a signed-in session, show one active workflow in each repository: frontend `Frontend tests` and backend `Backend tests`, both `.github/workflows/tests.yml`. They run on push and pull request to `master`, `main`, and `develop` only. They do not call App Platform, publish an image, or accept schedule, `workflow_run`, or manual dispatch. Queued and in-progress runs were 0. The latest completed frontend run is `master` `2d51619`; the latest completed backend run is `main` `9c708a0`. Those are CI results, not deployed revisions. A push of the local tracker commit on `feature/guest-cart-access` is not proven safe, because the live App Platform source branch is unread. Approval still required: sign in to DigitalOcean, identify the apps by domain, record the active deployment for each component, and disable autodeploy only if that control does not start a deployment.
-2. PV-CONTACT. Enquiry delivery stays in release scope and is locally integrated on `release/secure-storefront` in both repositories. Backend `ef1caaa2388474cc9956e4a3f1e49d70f41ce746` contains merge `6c474bfadcab3eb17ef5a095d002990608e638c9`. Frontend contact commit is `3c765d30ad4e8f59866af23c194c9ba1e4e11ad7`. On 2026-10-09 a disposable PostgreSQL pair saved one enquiry, returned HTTP 201 `ENQUIRY_RECEIVED`, and a captured file had the shopper Reply-To. That captured file is not inbox delivery. Real delivery to the Phoenix Vanz inbox is not passed. Do not approve contact for production until that delivery is shown.
-3. PV-MIGRATE. Plan and rehearse backup and restore before applying the foundation migrations that are not on `main`: `cart` `0004` through `0006`, and `orders` `0001` through `0005`. Django 5.2 adds none. Contact keeps `store/migrations/0026_enquiry.py` and `store/migrations/0026_product_option_configuration.py`. Their operations are independent (create Enquiry; rename ProductOption.price). Local candidate adds empty `store/migrations/0027_merge_enquiry_and_product_options.py`. A disposable in-memory SQLite migrate applied both 0026 leaves and then 0027. Neither 0026 was renamed. Production application of `0026_product_option_configuration` remains UNVERIFIED. Backup and restore rehearsal is still required. Do not apply this graph to production from this local pass.
-4. PV-MAINT-MODE. A tested way to stop basket writes, including direct Django API paths, during the cutover. The counter cleanup command is not that mechanism. None was found in the candidate source. Do not claim a staging app or a monitor exists.
-5. PV-STAGE. Deploy this exact pair to a production-like staging environment. No such environment is recorded. Preserve homepage, product-option and Elfsight behaviour that may already be live. Staging is not the isolated local PostgreSQL containers used for verification.
-6. PV-QUOTA. Approve production budget values and the maintenance cadence, batch caps, deadline and alert recipients before enforcement or a scheduled job is turned on. Test-only policies in the verification docs are not those values.
-7. PV-SMOKE. After backend migration and deploy, deploy the matching frontend. Then HTTPS smoke of homepage, contact, basket start, add, recovery and health, before the basket is reopened. Record the deployed revision of each app.
-8. PV-ROLLBACK. Compatible paired rollback or an explicit fix-forward. Rolling the app back must not restore UUID-only basket ownership. Rolling the app back does not undo database migrations.
+Homepage metadata is present. The product title is the product name, the
+category title is the category name, and the cart and checkout titles were
+empty. Not a full page-by-page pass. Those title gaps stay open under Later.
 
-## 4. Deferred work
+### PV-REVIEWS-504 — unused Google reviews proxy
 
-### PV-CHECKOUT — Stripe deposit and balance payment
+Elfsight is on the homepage and its iframe has a title. Older uploaded
+reviews are not evidence of a current bug. PV-REVIEWS stays deferred.
 
-Deferred. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED` or production payment keys as part of the guest-cart release.
+### PV-DJANGO52 — Django 5.2.18
 
-Preserved requirements, still unmet:
+Part of the deployed release. This pass did not read the live runtime.
+No further framework upgrade belongs in the current work.
 
-- one-third deposit at checkout, balance due on completion, both calculated on the server;
-- durable order before payment, with deposit, outstanding balance and payment status;
-- webhook signatures, idempotency and duplicate-payment protection;
-- order-confirmation and balance-payment pages from a real order reference;
-- payment email only after a verified webhook;
-- workshop fitting, lead time and balance terms visible before payment;
-- Django-admin visibility and a manual fallback while a provider is down.
+### PV-NUXT — Nuxt pin
 
-Historical failure to preserve: an invalid Stripe API key previously broke the unfinished checkout. Correcting that key is part of this deferred implementation. It is not permission to turn payments on. The browser key, when this work starts, must be a publishable `pk_test_` or `pk_live_` key. A secret key does not belong in the frontend.
+The merged release pins `nuxt@4.4.8`. This pass did not read the live Nuxt
+version. 4.5 and 4.6 were not tested. Do not repeat that pin as open work.
 
-### PV-REVIEWS — first-party Google reviews
+### PV-ORDERS — snapshots and deposit arithmetic
 
-Deferred. Do not start it unless explicitly requested. Elfsight stays until a replacement is populated and approved. Then remove Elfsight, its third-party scripts and the obsolete review proxy together.
+Internal models and deposit arithmetic are in the deployed backend. They are
+not a public order API and not a payment page.
 
-### PV-NUXT — further Nuxt upgrade
+### PV-CONTACT — save-only, separate from email delivery
 
-Exact pin `nuxt@4.4.8` is on frontend `release/secure-storefront` and is included in the `master` merge in section 6. This machine is Node v22.14.0. Nuxt 4.4.8 engines are `^22.12.0 || ^24.11.0 || >=26.0.0`. Nuxt 4.5.2 requires Node `^22.19.0` and Nuxt 4.6.0 requires `^22.22.3`, so those newer releases were not installed and were not tested. The official Nuxt 4 guide says the root layout can stay when Nuxt detects it. This candidate kept the existing root `pages/` layout. `npm run test:cart-access` passed 59 tests. `npm run build` completed, and `node .output/server/index.mjs` on `127.0.0.1:3011` returned homepage 200 and `/api/health` 200. Not deployed. Node was not upgraded.
+`CONTACT_EMAIL_ENABLED=false` skips only the email-configuration requirement,
+saves the enquiry as pending, leaves `email_sent_at` empty, and confirms
+with "Your enquiry has been received." Missing or true keeps the current
+email validation and delivery. The live value of that setting was not read.
+The form is on the site. It was not submitted.
 
-### PV-COPY and older open requirements
+### PV-BUDGET — shared counters
 
-Still open. Not silently dropped:
+Counter code is in the release. `CART_RATE_LIMIT_ENABLED` defaults false.
+Code being deployed is not activation. The isolated PostgreSQL run is not
+production enforcement.
 
-- unique titles, canonical URLs, descriptions and social images on every indexable route, where PV-SEO did not already cover them;
-- contact fields accessible and validated in line with the server, privacy wording, and product or source prefill;
-- carousel hit area, logo accessible name, Elfsight iframe title, focus, keyboard and reduced motion;
-- useful outage, empty and retry states without duplicate proxy storms;
-- local seed command and `.env.example` files that name variables only;
-- Nuxt `#app-manifest` development cache error and the `postcss.config.js` warning;
-- frontend tests beyond the current cart-access script. Vitest and Playwright are not installed. Do not treat Edge CDP notes as a Playwright suite;
-- CI remains a merge gate for the branches it already watches. Deployment must not proceed on a red check;
-- post-deploy smoke for homepage, contact, cart, checkout, health and key APIs;
-- product WebP optimiser and backfill, responsive image sizes, Spaces cache lifetime, older HomeSlide MIME types, SSR time-to-first-byte, and the navigation logo size;
-- enquiry journey carrying the selected product and vehicle details;
-- four-week lead time and vehicle-specific hinge requirements;
-- order-status route with the order reference;
-- email retry that cannot duplicate an enquiry or an order.
+### PV-MAINT-CMD — counter cleanup command
 
-## 5. Verified deployed history
+`manage.py cart_rate_limit_maintenance` is not a schedule and does not close
+the basket. Nothing in this review turned it on.
 
-Recorded by the 28 September 2026 tracker. This review did not fetch live revisions, so these items are historical records, not a fresh production probe.
+### PV-SMOKE
 
-- Backend cart API restored and live before the guest-session replacement.
-- Quantity update and toast notifications.
-- API base URL in Nuxt runtime configuration.
-- Earlier cart race handling. Guest-session ownership supersedes UUID-only ownership for the unreleased cutover. Do not roll back to UUID-only ownership.
-- Homepage slideshow, WebP upload conversion, category-image backfill, fallback JPEGs, and deferred inactive slides.
-- Eager, high-priority first hero image.
-- Production domains pointed at the then-current applications.
-- GitHub CI and small pull-request deployment were recorded as working. The workflows in both repositories still run tests on `master`, `main` and `develop`. They do not themselves deploy.
-- Homepage performance baseline of about 95 mobile and 100 desktop, initial payload about 1.6 MB.
+Partial. The owner confirmed the live basket check. This pass covered the
+read-only pages above. Contact submit, a populated basket, recovery, and
+payment were not repeated.
 
-The older "repeated add increases quantity instead of duplicating a line" item is superseded by PV-OPTIONS.
+These cutover gates are not open work: PV-AUTODEPLOY as a block before the
+merge, PV-STAGE as a block before this release, and PV-MAINT-MODE as a block
+before opening the basket. The basket is open. No staging app was created.
+The live autodeploy switch was still not read.
 
-## 6. Next concrete action
+## Now
 
-MERGED, NOT DEPLOYED. GitHub confirmed both merges on 9 October 2026. Frontend `DaveCheez/phoenix-frontend` pull request 11 is in `master` as `67677f5c71c984ac3ae20dbc9435208b7c528cea`; `build-and-smoke-test` succeeded on `631c555f5e03e1b1b15af731409fe0cb0ac813dc`. Backend `DaveCheez/phoenix` pull request 12 is in `main` as `af42b896f7845b0e8c872ec7280137ea35cf7802`; `test` succeeded on `20a217adcceb94065d03e57f7f1e779ae0433f05`. The release branches were not deleted. No DigitalOcean, Neon, DNS, email, or autodeploy change was made, and no deployment was started. Live revisions, production database version, applied migrations and a backup point remain UNVERIFIED. Email setup remains pending: contact code is merged, local capture passed, and real inbox delivery has not passed. Temporary save-only mode is backend `CONTACT_EMAIL_ENABLED=false` (missing or true keeps email validation and delivery). That mode saves the enquiry as pending, leaves `email_sent_at` empty, and confirms with "Your enquiry has been received." Saved enquiries must be checked manually in the protected Django admin. Turning email on later does not send older enquiries. Not deployed. Checkout stays off.
+### PV-CONTACT — deliver the enquiry to the inbox
+
+Blocked on email and domain authentication.
+Problem: a shopper can use the contact form, and a saved row is not a message
+in the Phoenix inbox.
+Evidence: the form is live. Earlier local capture returned HTTP 201 and is
+not inbox delivery. Save-only exists so production can store an enquiry
+without SMTP. This pass did not submit the form and did not read the live
+email setting.
+Done when: one real enquiry arrives in the approved inbox with the shopper
+as Reply-To, and that row is marked sent. Older pending rows are not sent
+automatically when email is turned on.
+
+### PV-COPY — say what the price includes before the shopper asks
+
+Complete in source. Not deployed.
+The product page, a basket with products, and the empty basket use:
+
+- Made to order & fitted by Phoenix Vanz
+- Fitting is included in the displayed price. Workshop fitting in Accrington, Lancashire. No delivery. No VAT added.
+- Typical lead time: approximately 4 weeks.
+
+Local check on 16 October 2026, branch `fix/commercial-copy`: `npm run build`
+completed on Nuxt 4.4.8, and `npm run test:cart-access` passed 61 tests,
+including the existing cart access and recovery tests. Checkout stays
+disabled. No shipping, VAT, or fitting charge was added.
+
+## Next
+
+Public confirmation comes before taking money. PV-ORDERS stays the internal
+model. It is not this API. PV-ORDER is the next development milestone.
+
+1. PV-ORDER — order reference and confirmation. A shopper can be given a real order
+   reference and open that order's status. No Stripe and no deposit capture
+   in this step.
+   Done when: a durable order created by Phoenix Vanz can be opened from its
+   reference without a payment.
+
+2. PV-CHECKOUT — one-third deposit, then the balance on completion.
+   Still unmet. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED` as part of the
+   items in Now.
+   - Deposit and balance are calculated on the server from the order total.
+   - The order exists before payment, with deposit, outstanding balance, and
+     payment status.
+   - Webhook signatures, idempotency, and duplicate-payment protection.
+   - Confirmation and balance pages use a real order reference.
+   - Payment email is sent only after a verified webhook.
+   - Workshop fitting, lead time, and balance terms are visible before payment.
+   - Django admin can see the order, and there is a manual fallback while a
+     provider is down.
+   The browser key, when this starts, must be a publishable `pk_test_` or
+   `pk_live_` key. An invalid Stripe key previously broke the unfinished
+   checkout. Correcting that key is part of this work. It is not permission
+   to take payments.
+
+## Operational follow-through
+
+- If save-only is on, staff have to read new enquiries in the protected
+  Django admin. This pass did not open admin. Turning email on later must
+  not send those older rows by itself.
+- PV-QUOTA: leave enforcement off until production limits, the maintenance
+  cadence, batch caps, deadline, and alert recipients are approved. Test-only
+  policies are not those values.
+- PV-MIGRATE and PV-ROLLBACK: the applied production migration set and any
+  backup point are still unread. Rolling the app back does not unapply
+  `cart` `0004`–`0006`, `orders` `0001`–`0005`, or the enquiry migration.
+  Do not return to UUID-only basket ownership.
+- PV-AUTODEPLOY: the live switch was not read on 16 October 2026 and was not
+  changed. Do not assume the next push is inert.
+- Replaced credentials still need a runtime check. No credential belongs in
+  this file.
+
+## Later
+
+- PV-REVIEWS: first-party Google reviews. Do not start unless asked. Elfsight
+  stays until a replacement is approved, then remove Elfsight, its scripts,
+  and the obsolete review proxy together.
+- PV-NUXT: no further upgrade in this phase.
+- PV-STAGE: no production-like staging app is recorded. That absence does not
+  reopen a cutover gate ahead of the items in Now.
+- Still open, and not dropped: unique titles, descriptions, and social images
+  on every indexable route; contact privacy wording and product or vehicle
+  prefill; carousel hit area, focus, keyboard, and reduced motion, which this
+  pass did not fully exercise; outage and retry states; a local seed command
+  and `.env.example` files that name variables only; the Nuxt `#app-manifest`
+  development cache error and the `postcss.config.js` warning; frontend tests
+  beyond the cart-access script; product image sizes, Spaces cache lifetime,
+  and the navigation logo size; vehicle-specific hinge requirements; email
+  retry that cannot duplicate an enquiry or an order.
 
 ## Working rules
 

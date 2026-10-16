@@ -328,13 +328,7 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
       <div class="lg:w-1/3">
         <div class="rounded-lg bg-white p-6 shadow-md lg:sticky lg:top-28">
           <h2 class="mb-4 text-2xl font-bold">Order Summary</h2>
-          <div class="mb-4">
-            <p class="font-semibold text-gray-900">Workshop fitting only</p>
-            <p class="mt-1 text-sm text-gray-600">
-              All Phoenix Vanz products are completed and fitted at our workshop
-              in Accrington. Delivery is not available.
-            </p>
-          </div>
+          <PurchaseTerms class="mb-4" />
           <div
             class="mt-4 flex justify-between border-t pt-4 text-xl font-bold text-gray-800"
           >
@@ -357,21 +351,25 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
             Contact us to order
           </NuxtLink>
           <p v-if="!checkoutEnabled" class="mt-3 text-sm text-gray-600">
-            Online payment is temporarily unavailable. We will confirm fitting,
-            lead time and payment details directly with you.
+            Online payment is temporarily unavailable.
           </p>
         </div>
       </div>
     </div>
 
-    <div v-else-if="access === 'ready'" class="py-16 text-center">
-      <p class="mb-4 text-xl text-gray-600">Your cart is empty.</p>
-      <NuxtLink
-        to="/"
-        class="rounded bg-gray-800 px-4 py-2 font-bold text-white hover:bg-gray-900"
-      >
-        Continue Shopping
-      </NuxtLink>
+    <div v-else class="mx-auto max-w-2xl py-8">
+      <p v-if="access === 'ready'" class="mb-6 text-center text-xl text-gray-600">
+        Your cart is empty.
+      </p>
+      <PurchaseTerms />
+      <div v-if="access === 'ready'" class="mt-6 text-center">
+        <NuxtLink
+          to="/"
+          class="rounded bg-gray-800 px-4 py-2 font-bold text-white hover:bg-gray-900"
+        >
+          Continue Shopping
+        </NuxtLink>
+      </div>
     </div>
   </div>
 </template>

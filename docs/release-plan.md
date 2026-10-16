@@ -226,6 +226,10 @@ The captured message is not real inbox delivery. Contact is not approved for pro
 
 2026-10-09. Scope is frozen. The candidate build of Nuxt 4.4.8 completed, and the built entry on `127.0.0.1:3011` returned homepage 200 and `/api/health` 200. The earlier disposable PostgreSQL pair is still the basket and contact evidence; application source has not changed since that run. `https://cloud.digitalocean.com/apps` redirected to login. No token, `doctl`, or `gh` was available. Autodeploy was not read and not changed. Nothing was pushed. `master` and `main` were not updated. Production database version, applied migrations and a backup point remain UNVERIFIED.
 
+## Commercial copy
+
+16 October 2026. Owner-confirmed rules for the current website: every product is made to order; fitting is at the Phoenix Vanz workshop in Accrington, Lancashire; fitting is included in the displayed price; no delivery; Phoenix Vanz does not add VAT; typical lead time is approximately 4 weeks. That wording is on the product page and the basket, including an empty basket. Checkout stays disabled. This note is not a deployment.
+
 ## What this plan does not do
 
 It does not provision staging, activate a job, choose quotas, change DNS, or
