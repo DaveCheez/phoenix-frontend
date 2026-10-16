@@ -361,6 +361,7 @@ useHead(() => ({
               This is an estimate. Your cart will show the confirmed price from
               Phoenix Vanz.
             </p>
+            <PurchaseTerms class="pt-3" />
           </div>
 
           <p class="mt-8 text-lg leading-relaxed text-gray-700">
