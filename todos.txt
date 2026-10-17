@@ -96,8 +96,10 @@ homepage image-loading optimisation.
 ### PV-SEO — homepage metadata and accessibility
 
 Homepage metadata is present. The product title is the product name, the
-category title is the category name, and the cart and checkout titles were
-empty. Not a full page-by-page pass. Those title gaps stay open under Later.
+category title is the category name. The cart document title is
+"Your basket | Phoenix Vanz" and the checkout document title is
+"Checkout | Phoenix Vanz". Not a full page-by-page pass. Other missing
+titles stay open under Later.
 
 ### PV-REVIEWS-504 — unused Google reviews proxy
 
