@@ -18,6 +18,14 @@ export const SAFE_UPSTREAM_CODES = new Set([
   "CONFIGURATION_CONFLICT",
   "INVALID_QUANTITY",
   "CART_NOT_FOUND",
+  "ORDER_REQUEST_INVALID",
+  "IDEMPOTENCY_KEY_REQUIRED",
+  "IDEMPOTENCY_CONFLICT",
+  "EMPTY_CART",
+  "INVALID_CUSTOMER",
+  "INVALID_VEHICLE",
+  "ORDER_NOT_AVAILABLE",
+  "ORDER_TEMPORARILY_UNAVAILABLE",
 ]);
 
 export type UpstreamResult =
@@ -189,6 +197,7 @@ export async function readProtectedUpstream(input: {
   bearer?: string;
   appCredential: string;
   shopperAddress: string;
+  idempotencyKey?: string;
   fetchImpl?: typeof fetch;
 }): Promise<ProtectedRead> {
   if (
@@ -207,6 +216,7 @@ export async function readProtectedUpstream(input: {
     shopperAddress: input.shopperAddress,
   });
   if (input.body) headers["content-type"] = "application/json";
+  if (input.idempotencyKey) headers["Idempotency-Key"] = input.idempotencyKey;
 
   let response: Response;
   try {
@@ -251,6 +261,7 @@ export async function cartUpstream(input: {
   bearer?: string;
   appCredential: string;
   shopperAddress: string;
+  idempotencyKey?: string;
   fetchImpl?: typeof fetch;
 }): Promise<UpstreamResult> {
   const read = await readProtectedUpstream(input);
@@ -277,6 +288,7 @@ export async function dispatchCartUpstream(
     method: string;
     body?: Record<string, unknown>;
     bearer?: string;
+    idempotencyKey?: string;
     fetchImpl?: typeof fetch;
   },
 ): Promise<UpstreamResult> {
@@ -293,6 +305,7 @@ export async function dispatchCartUpstream(
     method: input.method,
     body: input.body,
     bearer: input.bearer,
+    idempotencyKey: input.idempotencyKey,
     appCredential: config.appCredential,
     shopperAddress,
     fetchImpl: input.fetchImpl,

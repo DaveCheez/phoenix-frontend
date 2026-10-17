@@ -30,6 +30,7 @@ export type DjangoCall = (input: {
   method: string;
   body?: Record<string, unknown>;
   bearer?: string;
+  idempotencyKey?: string;
 }) => Promise<UpstreamResult>;
 
 export function cartFailure(

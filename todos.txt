@@ -42,7 +42,7 @@ Owner-confirmed on 16 October 2026 for the current website:
 A future checkout takes a one-third deposit. The balance is due on completion.
 Deposit and balance are calculated on the server from the agreed order total.
 `orders/money.py` uses `deposit_pence = (total_pence + 1) // 3`.
-PV-COPY is implemented on this branch. It is not deployed.
+PV-COPY is deployed and owner-verified. Checkout stays disabled.
 
 ## Completed and deployed baseline
 
@@ -168,7 +168,7 @@ automatically when email is turned on.
 
 ### PV-COPY — say what the price includes before the shopper asks
 
-Complete in source. Not deployed.
+Deployed and owner-verified.
 The product page, a basket with products, and the empty basket use:
 
 - Made to order & fitted by Phoenix Vanz
@@ -183,17 +183,26 @@ disabled. No shipping, VAT, or fitting charge was added.
 ## Next
 
 Public confirmation comes before taking money. PV-ORDERS stays the internal
-model. It is not this API. PV-ORDER is the next development milestone.
+model. Checkout stays disabled. `NUXT_PUBLIC_CHECKOUT_ENABLED` stays false.
+No Stripe in these steps.
 
-1. PV-ORDER — order reference and confirmation. A shopper can be given a real order
-   reference and open that order's status. No Stripe and no deposit capture
-   in this step.
-   Done when: a durable order created by Phoenix Vanz can be opened from its
-   reference without a payment.
+1. PV-ORDER-1 — public unpaid order creation and confirmation API.
+   A guest who owns the basket submits customer and vehicle details, receives
+   one unpaid Phoenix order reference, and can read that confirmation while
+   the same guest credential is valid. Prices, the deposit, and the balance
+   come from the server snapshot. The basket is not cleared.
+   Isolated PostgreSQL 16.15, bound to 127.0.0.1 only, passed on
+   17 October 2026. Two concurrent requests with one idempotency key
+   created one unpaid order, and the same key with a changed payload was
+   rejected. The disposable container was removed. Complete as an API
+   checkpoint. Not deployed. Checkout stays disabled.
 
-2. PV-CHECKOUT — one-third deposit, then the balance on completion.
-   Still unmet. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED` as part of the
-   items in Now.
+2. PV-ORDER-2 — customer details and confirmation UI.
+   `/checkout` and `/order-confirmation` stay stubs until this step.
+
+3. PV-DEPOSIT — one-third deposit, then the balance on completion.
+   After PV-ORDER. Still unmet. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED`
+   as part of the items in Now.
    - Deposit and balance are calculated on the server from the order total.
    - The order exists before payment, with deposit, outstanding balance, and
      payment status.

@@ -4,6 +4,10 @@ Reviewed 9 October 2026 from the commits named below. GitHub has since
 merged both candidates. That merge is not a deployment. Do not deploy or
 change platform settings from this document.
 
+17 October 2026: PV-ORDER-1 is the public unpaid order API on
+`feature/public-order-api`. It is not deployed. Checkout stays disabled.
+The review below is historical and is not rewritten.
+
 `todos.txt` is the status source. Test transcripts stay in
 `docs/guest-cart-access.md` and in the backend documents named below.
 
