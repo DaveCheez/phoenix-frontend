@@ -4,6 +4,16 @@ import logoUrl from "~/assets/images/logo.png";
 import { LAST_CONFIRMED_LABEL, logCartFailure } from "~/utils/cartClient";
 import { runProductRecovery } from "~/utils/productRecovery";
 
+useHead({
+  title: "Your basket | Phoenix Vanz",
+  meta: [
+    {
+      name: "description",
+      content: "Review the products in your Phoenix Vanz basket.",
+    },
+  ],
+});
+
 const {
   access,
   pending,
