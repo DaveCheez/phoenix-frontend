@@ -1,8 +1,11 @@
 # Cross-repository merge and release plan
 
-Reviewed 9 October 2026 from the commits named below. This plan has not been
-executed. Do not merge, push, deploy, or change platform settings from this
-document.
+Post-deployment status, 16 October 2026: the owner confirms the current
+release is deployed and the requested live basket check worked. Live commit
+hashes were not read. `todos.txt` is the status source. The sections below
+are the October assembly record, not an open cutover.
+
+Do not change platform settings from this document.
 
 `todos.txt` is the status source. Test transcripts stay in
 `docs/guest-cart-access.md` and in the backend documents named below.
