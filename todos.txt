@@ -191,9 +191,11 @@ No Stripe in these steps.
    one unpaid Phoenix order reference, and can read that confirmation while
    the same guest credential is valid. Prices, the deposit, and the balance
    come from the server snapshot. The basket is not cleared.
-   Sequential checks passed on 17 October 2026. The isolated PostgreSQL
-   concurrency check did not run: Docker is not installed on this machine.
-   Not complete until that check runs.
+   Isolated PostgreSQL 16.15, bound to 127.0.0.1 only, passed on
+   17 October 2026. Two concurrent requests with one idempotency key
+   created one unpaid order, and the same key with a changed payload was
+   rejected. The disposable container was removed. Complete as an API
+   checkpoint. Not deployed. Checkout stays disabled.
 
 2. PV-ORDER-2 — customer details and confirmation UI.
    `/checkout` and `/order-confirmation` stay stubs until this step.
