@@ -198,7 +198,8 @@ No Stripe in these steps.
    checkpoint. Not deployed. Checkout stays disabled.
 
 2. PV-ORDER-2 — customer details and confirmation UI.
-   `/checkout` and `/order-confirmation` stay stubs until this step.
+   An unpaid order can be submitted from the disabled checkout page and
+   opened again from its reference. Payment stays unavailable. Not deployed.
 
 3. PV-DEPOSIT — one-third deposit, then the balance on completion.
    After PV-ORDER. Still unmet. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED`

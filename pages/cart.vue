@@ -355,10 +355,10 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
           </NuxtLink>
           <NuxtLink
             v-else
-            to="/contact"
-            class="mt-6 block rounded-lg bg-blue-600 py-3 text-center font-semibold text-white transition hover:bg-blue-700"
+            to="/checkout"
+            class="mt-6 block min-h-11 rounded-lg bg-blue-600 py-3 text-center font-semibold text-white transition hover:bg-blue-700"
           >
-            Contact us to order
+            Place an unpaid order
           </NuxtLink>
           <p v-if="!checkoutEnabled" class="mt-3 text-sm text-gray-600">
             Online payment is temporarily unavailable.
