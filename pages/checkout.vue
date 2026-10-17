@@ -97,6 +97,17 @@
 import { computed, nextTick, ref } from "vue";
 import { useRouter } from "vue-router";
 
+useHead({
+  title: "Checkout | Phoenix Vanz",
+  meta: [
+    {
+      name: "description",
+      content:
+        "Online checkout is temporarily unavailable. Contact Phoenix Vanz to order.",
+    },
+  ],
+});
+
 const router = useRouter();
 const config = useRuntimeConfig();
 const checkoutEnabled = computed(() =>
