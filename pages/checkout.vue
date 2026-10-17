@@ -2,21 +2,78 @@
   <div class="max-w-xl mx-auto p-6">
     <h1 class="text-2xl font-bold mb-4">Checkout</h1>
 
-    <div
-      v-if="!checkoutEnabled"
-      class="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950"
-    >
-      <h2 class="text-lg font-semibold">Online payment is temporarily unavailable</h2>
-      <p class="mt-2">
-        Phoenix Vanz will confirm the correct fitment, fitting date, lead time and
-        payment details directly with you.
-      </p>
-      <NuxtLink
-        to="/contact"
-        class="mt-4 inline-flex rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-black"
-      >
-        Contact Phoenix Vanz
-      </NuxtLink>
+    <div v-if="!checkoutEnabled" class="space-y-6">
+      <div class="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950">
+        <h2 class="text-lg font-semibold">Online payment is temporarily unavailable</h2>
+        <p class="mt-2">
+          Phoenix Vanz will confirm the correct fitment, fitting date, lead time and
+          payment details directly with you.
+        </p>
+        <NuxtLink
+          to="/contact"
+          class="mt-4 inline-flex min-h-11 items-center rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-black"
+        >
+          Contact Phoenix Vanz
+        </NuxtLink>
+      </div>
+
+      <form class="space-y-4" novalidate @submit.prevent="submitUnpaidOrder(false)">
+        <h2 class="text-lg font-semibold">Place an unpaid order</h2>
+        <p>
+          Payment is not taken. The prices come from your basket on the server.
+          A repeat of this submission uses the same order.
+        </p>
+        <p v-if="orderError" role="alert" class="rounded bg-red-50 p-3 text-red-800">{{ orderError }}</p>
+        <div>
+          <label for="customer-name" class="mb-1 block">Full name</label>
+          <input id="customer-name" v-model="details.customer_name" autocomplete="name" maxlength="200" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="customer-email" class="mb-1 block">Email</label>
+          <input id="customer-email" v-model="details.customer_email" type="email" autocomplete="email" maxlength="254" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="customer-phone" class="mb-1 block">Phone</label>
+          <input id="customer-phone" v-model="details.customer_phone" type="tel" autocomplete="tel" maxlength="40" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="vehicle-make" class="mb-1 block">Vehicle make</label>
+          <input id="vehicle-make" v-model="details.vehicle_make" maxlength="100" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="vehicle-model" class="mb-1 block">Vehicle model</label>
+          <input id="vehicle-model" v-model="details.vehicle_model" maxlength="100" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="vehicle-year" class="mb-1 block">Vehicle year</label>
+          <input id="vehicle-year" v-model="details.vehicle_year" inputmode="numeric" maxlength="4" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="vehicle-wheelbase" class="mb-1 block">Wheelbase</label>
+          <input id="vehicle-wheelbase" v-model="details.vehicle_wheelbase" maxlength="50" required class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <div>
+          <label for="vehicle-registration" class="mb-1 block">Registration, if you want it on the order</label>
+          <input id="vehicle-registration" v-model="details.vehicle_registration" maxlength="20" autocomplete="off" class="min-h-11 w-full rounded border p-2" />
+        </div>
+        <PurchaseTerms />
+        <button
+          type="submit"
+          class="min-h-11 w-full rounded bg-gray-900 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+          :disabled="submitting"
+        >
+          {{ submitting ? "Submitting..." : "Create unpaid order" }}
+        </button>
+        <button
+          v-if="offerSeparate"
+          type="button"
+          class="min-h-11 w-full rounded border border-gray-900 px-4 font-semibold sm:w-auto"
+          :disabled="submitting"
+          @click="submitUnpaidOrder(true)"
+        >
+          Submit as a separate order
+        </button>
+      </form>
     </div>
 
     <div v-else-if="step === 1">
@@ -96,6 +153,7 @@
 <script setup>
 import { computed, nextTick, ref } from "vue";
 import { useRouter } from "vue-router";
+import { createIdempotencyKey, submissionKey, validateCustomer } from "~/utils/orderConfirmation";
 
 useHead({
   title: "Checkout | Phoenix Vanz",
@@ -124,6 +182,81 @@ const address = ref({
   city: "",
   postcode: "",
 });
+const details = ref({
+  customer_name: "",
+  customer_email: "",
+  customer_phone: "",
+  vehicle_make: "",
+  vehicle_model: "",
+  vehicle_year: "",
+  vehicle_wheelbase: "",
+  vehicle_registration: "",
+});
+const orderError = ref("");
+const submitting = ref(false);
+const offerSeparate = ref(false);
+
+const submitUnpaidOrder = async (separate) => {
+  if (checkoutEnabled.value || submitting.value) return;
+  orderError.value = "";
+  const validated = validateCustomer(details.value);
+  if (!validated.ok) {
+    orderError.value = validated.error;
+    return;
+  }
+  const decision = submissionKey(window.sessionStorage, validated.body, {
+    replace: separate === true,
+    createKey: createIdempotencyKey,
+  });
+  if (decision.action === "conflict") {
+    offerSeparate.value = true;
+    orderError.value = "These details differ from the unpaid order already submitted in this browser. Open that confirmation, or submit a separate order.";
+    return;
+  }
+  submitting.value = true;
+  try {
+    const csrfResponse = await fetch("/api/cart/csrf", {
+      credentials: "same-origin",
+      headers: { accept: "application/json", "x-phoenix-csrf-request": "1" },
+    });
+    const csrfBody = await csrfResponse.json().catch(() => null);
+    if (!csrfResponse.ok || typeof csrfBody?.csrf_token !== "string") {
+      orderError.value = "The order was not sent. Start a basket and try again.";
+      return;
+    }
+    const response = await fetch("/api/orders", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "x-phoenix-csrf": csrfBody.csrf_token,
+        "idempotency-key": decision.key,
+      },
+      body: JSON.stringify(validated.body),
+    });
+    const payload = await response.json().catch(() => null);
+    const createdReference = payload?.order?.reference;
+    if ((response.status === 201 || response.status === 200) && typeof createdReference === "string") {
+      await router.push({ path: "/order-confirmation", query: { reference: createdReference } });
+      return;
+    }
+    if (response.status === 409) {
+      offerSeparate.value = true;
+      orderError.value = "This submission does not match the unpaid order already stored. It was not created again.";
+      return;
+    }
+    if (response.status === 401) {
+      orderError.value = "Start a basket in this browser before placing an order.";
+      return;
+    }
+    orderError.value = "The unpaid order could not be created. You can try again without creating a second order.";
+  } catch {
+    orderError.value = "The unpaid order could not be created. You can try again without creating a second order.";
+  } finally {
+    submitting.value = false;
+  }
+};
 
 let stripe;
 let elements;
