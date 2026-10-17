@@ -74,6 +74,7 @@ export async function callDjango(
     method: string;
     body?: Record<string, unknown>;
     bearer?: string;
+    idempotencyKey?: string;
   },
 ): Promise<UpstreamResult> {
   const result = await dispatchCartUpstream(event, config, {
@@ -82,6 +83,7 @@ export async function callDjango(
     method: input.method,
     body: input.body,
     bearer: input.bearer,
+    idempotencyKey: input.idempotencyKey,
   });
   if (!result.ok) logCartEvent(result.category, result.status);
   return result;
