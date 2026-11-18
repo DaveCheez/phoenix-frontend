@@ -23,6 +23,9 @@ const CUSTOMER_FIELDS = [
   "customer_notes",
 ] as const;
 
+const ORDER_FIELDS = [...CUSTOMER_FIELDS, "cart_review_token"] as const;
+const REVIEW_TOKEN = /^[0-9a-f]{64}$/;
+
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
 const REFERENCE = /^[A-Za-z0-9-]{4,32}$/;
 
@@ -33,8 +36,12 @@ export function allowlistedOrder(body: Record<string, unknown> | null):
     return { ok: false, code: "ORDER_REQUEST_INVALID", error: "The order request is not valid." };
   }
   const keys = Object.keys(body);
-  if (keys.some((key) => !CUSTOMER_FIELDS.includes(key as typeof CUSTOMER_FIELDS[number]))) {
+  if (keys.some((key) => !ORDER_FIELDS.includes(key as typeof ORDER_FIELDS[number]))) {
     return { ok: false, code: "ORDER_REQUEST_INVALID", error: "The order request is not valid." };
+  }
+  const reviewToken = body.cart_review_token;
+  if (typeof reviewToken !== "string" || !REVIEW_TOKEN.test(reviewToken)) {
+    return { ok: false, code: "CART_REVIEW_REQUIRED", error: "Review the basket before placing the order." };
   }
   const required = CUSTOMER_FIELDS.slice(0, 7);
   if (required.some((key) => body[key] == null || body[key] === "")) {
@@ -43,7 +50,7 @@ export function allowlistedOrder(body: Record<string, unknown> | null):
   if (typeof body.vehicle_year !== "number" || !Number.isInteger(body.vehicle_year)) {
     return { ok: false, code: "INVALID_VEHICLE", error: "The vehicle details are not valid." };
   }
-  const cleaned: Record<string, unknown> = {};
+  const cleaned: Record<string, unknown> = { cart_review_token: reviewToken };
   for (const key of CUSTOMER_FIELDS) {
     if (body[key] != null) cleaned[key] = body[key];
   }

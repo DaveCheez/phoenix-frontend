@@ -106,6 +106,8 @@ export function validateIssuance(payload: unknown, now = Date.now()):
   return { ok: true, token, expiresAt, cart };
 }
 
+const REVIEW_TOKEN = /^[0-9a-f]{64}$/;
+
 const ITEM_FIELDS = [
   "item_id",
   "product_id",
@@ -128,12 +130,19 @@ export function publicCart(value: unknown): Record<string, unknown> | null {
   const cart = value as Record<string, unknown>;
   if (!Array.isArray(cart.items)) return null;
   const id = typeof cart.id === "string" ? cart.id : "";
-  return {
+  const published: Record<string, unknown> = {
     id,
     items: cart.items.map((item) => publicItem(item)),
     item_count: cart.item_count,
     total: typeof cart.total === "string" ? cart.total : undefined,
   };
+  if ("cart_review_token" in cart && cart.cart_review_token != null && cart.cart_review_token !== "") {
+    if (typeof cart.cart_review_token !== "string" || !REVIEW_TOKEN.test(cart.cart_review_token)) {
+      return null;
+    }
+    published.cart_review_token = cart.cart_review_token;
+  }
+  return published;
 }
 
 function publicItem(value: unknown): Record<string, unknown> {

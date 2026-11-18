@@ -32,7 +32,7 @@ test("product and cart show the same terms beside price and basket actions", () 
 
   const summaryAt = cartPage.indexOf("Order Summary");
   const cartTermsAt = cartPage.indexOf("<PurchaseTerms");
-  const checkoutAt = cartPage.indexOf("Proceed to Checkout");
+  const checkoutAt = cartPage.indexOf("Continue to order details");
   assert.ok(summaryAt >= 0 && cartTermsAt > summaryAt && cartTermsAt < checkoutAt);
   assert.equal((cartPage.match(/<PurchaseTerms/g) || []).length, 2);
   assert.match(cartPage, /Your cart is empty\./);

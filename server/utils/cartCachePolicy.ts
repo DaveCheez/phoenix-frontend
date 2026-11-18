@@ -7,6 +7,10 @@ export function isCartCachePath(pathname: string): boolean {
   return pathname === "/api/cart" || pathname.startsWith("/api/cart/");
 }
 
+export function isOrderCachePath(pathname: string): boolean {
+  return pathname === "/api/orders" || pathname.startsWith("/api/orders/");
+}
+
 function headerText(value: unknown): string {
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string").join(", ");
   return typeof value === "string" ? value : "";
@@ -37,7 +41,7 @@ export function applyCartCachePolicy(event: H3Event): void {
   } catch {
     return;
   }
-  if (!isCartCachePath(pathname)) return;
+  if (!isCartCachePath(pathname) && !isOrderCachePath(pathname)) return;
   writeCartCacheHeaders(event);
 }
 

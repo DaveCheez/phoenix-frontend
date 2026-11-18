@@ -122,6 +122,27 @@ test("simulated client: protocol and malformed success bodies are not applied", 
   }
 });
 
+test("simulated client: a review token is kept and a bad token is not dropped quietly", async () => {
+  const token = "ab".repeat(32);
+  const state = readyState();
+  const controller = controllerFor(state, async (path) => {
+    if (path === "/api/cart/csrf") return { status: 200, _data: { success: true, csrf_token: "csrf-1" } };
+    return { status: 200, _data: { success: true, cart: { ...basket(2, "20.00"), cart_review_token: token } } };
+  });
+  await controller.addToCart(3, 1, []);
+  assert.equal(state.cart.cart_review_token, token);
+  assert.equal(state.cart.total, "20.00");
+
+  const rejected = readyState();
+  const rejectedController = controllerFor(rejected, async (path) => {
+    if (path === "/api/cart/csrf") return { status: 200, _data: { success: true, csrf_token: "csrf-1" } };
+    return { status: 200, _data: { success: true, cart: { ...basket(4, "40.00"), cart_review_token: "BAD" } } };
+  });
+  await assert.rejects(rejectedController.addToCart(3, 1, []), (error) => error.cartOutcome === "uncertain");
+  assert.equal(rejected.cart.total, "10.00");
+  assert.equal(rejected.cart.cart_review_token, undefined);
+});
+
 test("simulated client: validated success replaces the basket", async () => {
   const state = readyState();
   const controller = controllerFor(state, async (path, options) => {

@@ -9,15 +9,17 @@ const nuxtConfig = readFileSync(new URL("../nuxt.config.ts", import.meta.url), "
 test("cart and checkout pages set titles and descriptions", () => {
   assert.match(cartPage, /title:\s*"Your basket \| Phoenix Vanz"/);
   assert.match(cartPage, /Review the products in your Phoenix Vanz basket\./);
-  assert.match(checkoutPage, /title:\s*"Checkout \| Phoenix Vanz"/);
-  assert.match(
-    checkoutPage,
-    /Online checkout is temporarily unavailable\. Contact Phoenix Vanz to order\./,
-  );
+  assert.match(checkoutPage, /title:\s*"Order details \| Phoenix Vanz"/);
+  assert.match(checkoutPage, /No payment is taken\./);
+  const confirmationPage = readFileSync(new URL("../pages/order-confirmation.vue", import.meta.url), "utf8");
+  assert.match(confirmationPage, /title:\s*"Order confirmation \| Phoenix Vanz"/);
 });
 
 test("checkout stays disabled", () => {
   assert.match(nuxtConfig, /checkoutEnabled:\s*false/);
-  assert.match(checkoutPage, /v-if="!checkoutEnabled"/);
+  assert.match(nuxtConfig, /orderSubmissionEnabled:\s*false/);
+  assert.match(checkoutPage, /v-if="!orderSubmissionEnabled"/);
   assert.match(checkoutPage, /Online payment is temporarily unavailable/);
+  assert.equal(checkoutPage.includes("/api/place-order"), false);
+  assert.equal(checkoutPage.includes("card-element"), false);
 });

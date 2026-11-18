@@ -9,6 +9,7 @@ export const LINE_MISSING_MESSAGE = "This item is no longer in your basket.";
 export const PREFLIGHT_MESSAGE = "The basket change was not sent. Try again.";
 
 const MONEY = /^[0-9]+\.[0-9]{2}$/;
+const REVIEW_TOKEN = /^[0-9a-f]{64}$/;
 const CART_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VALIDATION_CODES = new Set([
@@ -181,7 +182,12 @@ export function validateCartPayload(value) {
     if (!item) return null;
     items.push(item);
   }
-  return { id: value.id, items, item_count: value.item_count, total };
+  const cart = { id: value.id, items, item_count: value.item_count, total };
+  if (value.cart_review_token != null && value.cart_review_token !== "") {
+    if (typeof value.cart_review_token !== "string" || !REVIEW_TOKEN.test(value.cart_review_token)) return null;
+    cart.cart_review_token = value.cart_review_token;
+  }
+  return cart;
 }
 
 function plainData(value) {
