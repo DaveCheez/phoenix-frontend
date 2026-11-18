@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getRequestHeader, readBody, setResponseStatus } from "h3";
+import { getQuery, getRequestHeader, readBody, setResponseStatus } from "h3";
 
 import {
   cartFailure,
@@ -28,6 +28,11 @@ const REVIEW_TOKEN = /^[0-9a-f]{64}$/;
 
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
 const REFERENCE = /^[A-Za-z0-9-]{4,32}$/;
+const PAGE = /^[1-9][0-9]{0,3}$/;
+const MONEY = /^[0-9]+\.[0-9]{2}$/;
+const CREATED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const SUMMARY_FIELDS = ["reference", "created_at", "currency", "full_total", "payment_status"] as const;
+const LIST_FIELDS = ["success", "orders", "page", "has_more"] as const;
 
 export function allowlistedOrder(body: Record<string, unknown> | null):
   | { ok: true; body: Record<string, unknown> }
@@ -97,6 +102,62 @@ export async function handleCreateOrder(event: H3Event, config: CartConfig, djan
     bearer: guest.value,
     idempotencyKey: key,
   }));
+}
+
+function publishedSummary(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).some((key) => !SUMMARY_FIELDS.includes(key as typeof SUMMARY_FIELDS[number]))) return null;
+  if (typeof row.reference !== "string" || !REFERENCE.test(row.reference)) return null;
+  if (typeof row.created_at !== "string" || !CREATED_AT.test(row.created_at)) return null;
+  if (row.currency !== "GBP") return null;
+  if (typeof row.full_total !== "string" || !MONEY.test(row.full_total)) return null;
+  if (row.payment_status !== "pending_deposit") return null;
+  return {
+    reference: row.reference,
+    created_at: row.created_at,
+    currency: "GBP",
+    full_total: row.full_total,
+    payment_status: "pending_deposit",
+  };
+}
+
+export function publishedOrderList(body: Record<string, unknown> | null, page: number) {
+  if (!body || body.success !== true) return null;
+  if (Object.keys(body).some((key) => !LIST_FIELDS.includes(key as typeof LIST_FIELDS[number]))) return null;
+  if (body.page !== page || typeof body.has_more !== "boolean" || !Array.isArray(body.orders)) return null;
+  if (body.orders.length > 20) return null;
+  const orders = [];
+  for (const row of body.orders) {
+    const summary = publishedSummary(row);
+    if (!summary) return null;
+    orders.push(summary);
+  }
+  return { success: true, orders, page, has_more: body.has_more };
+}
+
+export async function handleOrderList(event: H3Event, config: CartConfig, django: DjangoCall) {
+  const guest = readGuestCookie(cookieHeader(event), config.dev);
+  if (guest.status !== "present") {
+    return cartFailure(event, 401, "CART_SESSION_REQUIRED", "A guest session is required before viewing orders.");
+  }
+  const requested = getQuery(event).page;
+  if (typeof requested !== "string" || !PAGE.test(requested)) {
+    return cartFailure(event, 400, "ORDER_REQUEST_INVALID", "The order request is not valid.");
+  }
+  const page = Number(requested);
+  const result = await django({
+    path: `orders/?page=${requested}`,
+    method: "GET",
+    bearer: guest.value,
+  });
+  if (!result.ok) return cartFailure(event, result.status, result.code, result.error, result.retryAfter);
+  const published = publishedOrderList(result.body, page);
+  if (!published) {
+    return cartFailure(event, 502, "ORDER_PROTOCOL_INCOMPATIBLE", "The order service returned an unexpected response.");
+  }
+  setResponseStatus(event, 200);
+  return published;
 }
 
 export async function handleOrderConfirmation(

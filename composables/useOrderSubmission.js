@@ -52,6 +52,8 @@ export function useOrderSubmission() {
       ),
       storage: browserStorage(),
       refreshBasket: () => cart.refreshBasket(),
+      syncBasket: () => cart.syncAfterSubmittedOrder(),
+      onSavedOrder: () => useOrderHistory().noteSavedOrder(),
       cartState: () => ({
         cart: cart.cart.value,
         access: cart.access.value,

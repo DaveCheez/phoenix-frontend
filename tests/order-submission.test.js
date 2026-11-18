@@ -9,7 +9,11 @@ import {
   basketSubmissionBlock,
   buildOrderBody,
   createOrderController,
+  createOrderHistory,
+  orderHistoryLost,
   readOrderConfirmation,
+  readOrderList,
+  validateOrderList,
   validateOrderRecord,
 } from "../utils/orderClient.js";
 
@@ -111,7 +115,9 @@ function controllerFor(state, fetch, extras = {}) {
     lock: extras.lock || mutex(),
     storage: extras.storage || memoryStorage(),
     refreshBasket: extras.refreshBasket || (async () => {}),
+    syncBasket: extras.syncBasket,
     cartState: () => state,
+    onSavedOrder: extras.onSavedOrder,
     createKey: () => {
       const key = `order-key-${keys.length + 1}`;
       keys.push(key);
@@ -331,4 +337,351 @@ test("confirmation reads with GET and rejects an unauthorised or fabricated refe
   assert.equal(loaded.order.full_total, "250.00");
   assert.deepEqual(calls.map((call) => call.method), ["GET", "GET", "GET", "GET", "GET"]);
   assert.equal(calls.some((call) => call.method === "POST"), false);
+});
+
+function summary(reference = "PV-LIST1") {
+  return {
+    reference,
+    created_at: "2026-11-18T17:05:08+00:00",
+    currency: "GBP",
+    full_total: "250.00",
+    payment_status: "pending_deposit",
+  };
+}
+
+test("your orders links follow saved orders rather than the basket or feature flags", () => {
+  const navbar = readFileSync(new URL("../components/Navbar.vue", import.meta.url), "utf8");
+  const cart = readFileSync(new URL("../pages/cart.vue", import.meta.url), "utf8");
+  const orders = readFileSync(new URL("../pages/orders.vue", import.meta.url), "utf8");
+  const confirmation = readFileSync(new URL("../pages/order-confirmation.vue", import.meta.url), "utf8");
+  const submission = readFileSync(new URL("../composables/useOrderSubmission.js", import.meta.url), "utf8");
+  const desktop = navbar.slice(0, navbar.indexOf('id="mobile-menu"'));
+  const mobile = navbar.slice(navbar.indexOf('id="mobile-menu"'));
+  const emptyBasket = cart.slice(cart.indexOf("Your cart is empty."));
+  assert.equal((desktop.match(/v-if="showSavedOrders"/g) || []).length, 1);
+  assert.equal((mobile.match(/v-if="showSavedOrders"/g) || []).length, 1);
+  assert.equal((desktop.match(/to="\/orders"/g) || []).length, 1);
+  assert.equal((mobile.match(/to="\/orders"/g) || []).length, 1);
+  assert.match(desktop, /Your orders/);
+  assert.match(mobile, /Your orders/);
+  assert.equal(navbar.includes("orderSubmissionEnabled"), false);
+  assert.equal(navbar.includes("localStorage"), false);
+  assert.match(emptyBasket, /v-if="showSavedOrders"/);
+  assert.match(emptyBasket, /View your submitted orders/);
+  assert.match(emptyBasket, /Continue Shopping/);
+  assert.equal(emptyBasket.includes("cartItemCount"), false);
+  assert.equal(orders.includes("startNewBasket"), false);
+  assert.equal(orders.includes("openEmptyBasket"), false);
+  assert.equal(orders.includes("/api/cart"), false);
+  assert.equal(orders.includes("readOrderList"), false);
+  assert.match(orders, /useOrderHistory/);
+  assert.match(orders, /current guest session/);
+  assert.match(orders, /another device/);
+  assert.match(orders, /You have no submitted orders in this browser session/);
+  assert.match(orders, /Your orders could not be loaded/);
+  assert.match(orders, /Orders are not available/);
+  assert.match(confirmation, /readConfirmation/);
+  assert.equal(confirmation.includes("useCart"), false);
+  assert.match(submission, /onSavedOrder/);
+  assert.equal(orderHistoryLost("not_started"), true);
+  assert.equal(orderHistoryLost("legacy"), true);
+  assert.equal(orderHistoryLost("access_unavailable"), true);
+  assert.equal(orderHistoryLost("ready"), false);
+  assert.equal(orderHistoryLost("missing_cart"), false);
+  assert.equal(orderHistoryLost("temporary"), false);
+  assert.equal(orderHistoryLost("loading"), false);
+});
+
+test("order list validation keeps pages separate from an empty history", async () => {
+  const row = summary();
+  assert.equal(validateOrderList({ success: true, orders: [], page: 1, has_more: false }, 1).orders.length, 0);
+  assert.equal(validateOrderList({ success: true, orders: [row], page: 1, has_more: false, note: "x" }, 1), null);
+  assert.equal(validateOrderList({ success: true, orders: [{ ...row, customer_email: "a@b.c" }], page: 1, has_more: false }, 1), null);
+  assert.equal(validateOrderList({ success: true, orders: [{ ...row, full_total: "250" }], page: 1, has_more: false }, 1), null);
+  const calls = [];
+  const fetch = async (path, options) => {
+    calls.push({ path, method: options.method, retry: options.retry });
+    if (path.endsWith("page=9")) return { status: 503, _data: { success: false, code: "CART_SERVICE_UNAVAILABLE" } };
+    if (path.endsWith("page=8")) return { status: 401, _data: { success: false, code: "CART_SESSION_REQUIRED" } };
+    if (path.endsWith("page=2")) return { status: 200, _data: { success: true, orders: [], page: 2, has_more: false } };
+    return { status: 200, _data: { success: true, orders: [row, summary("PV-LIST2")], page: 1, has_more: true } };
+  };
+  const first = await readOrderList(fetch, 1);
+  const blank = await readOrderList(fetch, 2);
+  const denied = await readOrderList(fetch, 8);
+  const failed = await readOrderList(fetch, 9);
+  assert.equal(first.outcome, "success");
+  assert.equal(first.list.has_more, true);
+  assert.equal(first.list.orders[1].reference, "PV-LIST2");
+  assert.equal(blank.outcome, "empty");
+  assert.equal(denied.outcome, "unavailable");
+  assert.equal(failed.outcome, "service");
+  assert.notEqual(failed.message, ORDER_MESSAGES.listEmpty);
+  assert.deepEqual(calls.map((call) => call.method), ["GET", "GET", "GET", "GET"]);
+  assert.equal(calls.every((call) => call.retry === 0), true);
+});
+
+test("saved confirmation is independent of the basket and a failed refresh stays a success", async () => {
+  const confirmation = readFileSync(new URL("../pages/order-confirmation.vue", import.meta.url), "utf8");
+  const checkout = readFileSync(new URL("../pages/checkout.vue", import.meta.url), "utf8");
+  assert.equal(confirmation.includes("useCart"), false);
+  assert.equal(confirmation.includes("router.push"), false);
+  assert.match(checkout, /You have already submitted this order\./);
+  assert.match(checkout, /Changes to your basket apply only to a new order\./);
+  assert.match(checkout, /View submitted order/);
+  assert.match(checkout, /Start another order from this basket/);
+  assert.match(checkout, /Continue shopping/);
+  const mounted = checkout.slice(checkout.lastIndexOf("onMounted"));
+  assert.equal(mounted.includes("startNewOrder"), false);
+  const posts = [];
+  let depth = 0;
+  const state = { cart: basket(), access: "ready", pending: false };
+  const { controller, keys } = controllerFor(state, async (path, options) => {
+    if (path === "/api/cart/csrf") return csrf();
+    posts.push({ path, method: options.method, body: options.body, key: options.headers["idempotency-key"] });
+    if (posts.length === 1) throw new Error("response withheld");
+    return { status: 200, _data: { success: true, order: orderRecord("PV-SAME") } };
+  }, {
+    lock: async (task) => {
+      depth += 1;
+      if (depth !== 1) throw new Error("nested lock");
+      try {
+        return await task();
+      } finally {
+        depth -= 1;
+      }
+    },
+    syncBasket: async () => {
+      state.depthAtSync = depth;
+      state.cart = { ...basket(), items: [{ ...basket().items[0], name: "Next product" }], total: "60.00" };
+      return { ok: true };
+    },
+  });
+  const lost = await controller.submit(fields());
+  assert.equal(lost.outcome, "uncertain");
+  state.cart = { ...basket(), items: [], total: "0.00" };
+  const replayed = await controller.retry();
+  assert.equal(replayed.outcome, "success");
+  assert.equal(replayed.order.reference, "PV-SAME");
+  assert.equal(posts[0].key, posts[1].key);
+  assert.equal(posts[1].body.cart_review_token, TOKEN);
+  assert.equal(posts[1].body.customer_name, "Alex Farmer");
+  assert.equal(state.depthAtSync, 0);
+  assert.equal(state.cart.items[0].name, "Next product");
+  assert.equal(posts.some((call) => String(call.path).includes("clear")), false);
+  assert.equal(keys.length, 1);
+
+  const failedRefresh = controllerFor({ cart: basket(), access: "ready", pending: false }, async (path) => {
+    if (path === "/api/cart/csrf") return csrf();
+    return { status: 201, _data: { success: true, order: orderRecord("PV-WARN") } };
+  }, { syncBasket: async () => ({ ok: false }) });
+  const warned = await failedRefresh.controller.submit(fields());
+  assert.equal(warned.outcome, "success");
+  assert.equal(warned.order.reference, "PV-WARN");
+  assert.match(warned.basketWarning, /basket could not be refreshed/);
+  assert.equal(failedRefresh.controller.status().reference, "PV-WARN");
+  assert.equal(failedRefresh.controller.status().phase, "resolved");
+  assert.equal((await failedRefresh.controller.submit(fields())).sent, false);
+});
+
+function listed(orders, page = 1, hasMore = false) {
+  return { status: 200, _data: { success: true, orders, page, has_more: hasMore } };
+}
+
+test("no session and an empty first page keep the order links hidden", async () => {
+  const paths = [];
+  const absent = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: async (path, options) => {
+      paths.push(path);
+      assert.equal(options.method, "GET");
+      return { status: 401, _data: { success: false, code: "CART_SESSION_REQUIRED" } };
+    },
+  });
+  assert.equal(absent.show(), false);
+  const denied = await absent.read(1);
+  assert.equal(denied.outcome, "unavailable");
+  assert.equal(absent.show(), false);
+  assert.equal(absent.phase(), "none");
+  assert.deepEqual(paths, ["/api/orders?page=1"]);
+
+  const empty = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: async () => listed([]),
+  });
+  const blank = await empty.read(1);
+  assert.equal(blank.outcome, "empty");
+  assert.equal(empty.show(), false);
+  assert.equal(empty.phase(), "none");
+
+  const later = createOrderHistory({
+    state: { phase: "saved" },
+    fetch: async () => listed([], 2),
+  });
+  await later.read(2);
+  assert.equal(later.show(), true);
+  assert.equal(later.phase(), "saved");
+});
+
+test("the first saved order shows the menus and an empty basket keeps them", async () => {
+  const history = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: async () => {
+      throw new Error("order links must not wait for another list read");
+    },
+  });
+  const state = { cart: basket(), access: "ready", pending: false };
+  const { controller } = controllerFor(state, async (path) => {
+    if (path === "/api/cart/csrf") return csrf();
+    return { status: 201, _data: { success: true, order: orderRecord("PV-FIRST") } };
+  }, {
+    syncBasket: async () => {
+      state.cart = { ...basket(), items: [], item_count: 0, total: "0.00" };
+      return { ok: true };
+    },
+    onSavedOrder: () => history.noteSavedOrder(),
+  });
+  assert.equal(history.show(), false);
+  const saved = await controller.submit(fields());
+  assert.equal(saved.outcome, "success");
+  assert.equal(saved.order.reference, "PV-FIRST");
+  assert.equal(state.cart.items.length, 0);
+  assert.equal(history.show(), true);
+});
+
+test("a full reload restores order links from the authenticated list", async () => {
+  let calls = 0;
+  const fetch = async (path, options) => {
+    calls += 1;
+    assert.equal(path, "/api/orders?page=1");
+    assert.equal(options.method, "GET");
+    return listed([summary("PV-RELOAD")]);
+  };
+  const first = createOrderHistory({ state: { phase: "unknown" }, fetch });
+  assert.equal(first.show(), false);
+  await first.read(1);
+  assert.equal(first.show(), true);
+  const reloaded = createOrderHistory({ state: { phase: "unknown" }, fetch });
+  assert.equal(reloaded.show(), false);
+  await reloaded.read(1);
+  assert.equal(reloaded.show(), true);
+  assert.equal(calls, 2);
+});
+
+test("a temporary list failure keeps order links for the same session", async () => {
+  let mode = "ok";
+  const history = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: async () => (
+      mode === "fail"
+        ? { status: 503, _data: { success: false, code: "CART_SERVICE_UNAVAILABLE" } }
+        : listed([summary("PV-KEEP")])
+    ),
+  });
+  await history.read(1);
+  assert.equal(history.show(), true);
+  mode = "fail";
+  const failed = await history.read(1, { refresh: true });
+  assert.equal(failed.outcome, "service");
+  assert.notEqual(failed.message, ORDER_MESSAGES.listEmpty);
+  assert.equal(history.show(), true);
+});
+
+test("replacing or expiring the guest session clears order links and ignores a late list", async () => {
+  let release;
+  const history = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: () => new Promise((resolve) => {
+      release = () => resolve(listed([summary("PV-STALE")]));
+    }),
+  });
+  const pending = history.read(1);
+  history.noteSavedOrder();
+  history.loseSession();
+  release();
+  const late = await pending;
+  assert.equal(late.stale, true);
+  assert.equal(history.show(), false);
+
+  const expired = createOrderHistory({
+    state: { phase: "saved" },
+    fetch: async () => ({ status: 401, _data: { success: false, code: "CART_ACCESS_UNAVAILABLE" } }),
+  });
+  const denial = await expired.read(1, { refresh: true });
+  assert.equal(denial.outcome, "unavailable");
+  assert.equal(expired.show(), false);
+
+  let confirmRelease;
+  const confirmed = createOrderHistory({
+    state: { phase: "saved" },
+    fetch: () => new Promise((resolve) => {
+      confirmRelease = () => resolve({
+        status: 200,
+        _data: { success: true, order: orderRecord("PV-HIDDEN") },
+      });
+    }),
+  });
+  const confirmation = confirmed.readConfirmation("PV-HIDDEN");
+  confirmed.loseSession();
+  confirmRelease();
+  const hidden = await confirmation;
+  assert.equal(hidden.stale, true);
+  assert.equal(confirmed.show(), false);
+
+  const foreign = createOrderHistory({
+    state: { phase: "saved" },
+    fetch: async () => ({ status: 404, _data: { success: false, code: "ORDER_NOT_AVAILABLE" } }),
+  });
+  const missed = await foreign.readConfirmation("PV-OTHER");
+  assert.equal(missed.outcome, "unavailable");
+  assert.equal(missed.stale, undefined);
+  assert.equal(foreign.show(), true);
+});
+
+test("the orders page and navigation share one current first page", async () => {
+  let calls = 0;
+  const history = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: async () => {
+      calls += 1;
+      return listed([summary("PV-ONCE")]);
+    },
+  });
+  const [first, second] = await Promise.all([history.read(1), history.read(1)]);
+  await history.read(1);
+  assert.equal(calls, 1);
+  assert.equal(first.outcome, "success");
+  assert.equal(second.list.orders[0].reference, "PV-ONCE");
+  assert.equal(history.show(), true);
+});
+
+test("an older empty page cannot hide an order saved while it was loading", async () => {
+  let release;
+  const history = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: () => new Promise((resolve) => {
+      release = () => resolve(listed([]));
+    }),
+  });
+  const pending = history.read(1);
+  history.noteSavedOrder();
+  release();
+  const older = await pending;
+  assert.equal(older.stale, true);
+  assert.equal(history.show(), true);
+});
+
+test("an authenticated order establishes saved orders for this guest", async () => {
+  const history = createOrderHistory({
+    state: { phase: "unknown" },
+    fetch: async (path, options) => {
+      assert.equal(options.method, "GET");
+      assert.equal(path, "/api/orders/PV-SEEN");
+      return { status: 200, _data: { success: true, order: orderRecord("PV-SEEN") } };
+    },
+  });
+  const seen = await history.readConfirmation("PV-SEEN");
+  assert.equal(seen.outcome, "success");
+  assert.equal(seen.stale, undefined);
+  assert.equal(history.show(), true);
 });

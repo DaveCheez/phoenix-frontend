@@ -403,3 +403,67 @@ test("simulated client: raw fetch errors and secret strings are absent from logs
   assert.match(output, /cart cart-add CART_SERVICE_UNAVAILABLE/);
   setCartClientLog(() => {});
 });
+
+test("simulated client: a late cart read cannot restore items cleared by an order", async () => {
+  const state = { cart: null, access: "loading", pending: false };
+  let calls = 0;
+  let releaseLate;
+  let releaseCurrent;
+  let sawCurrent;
+  const currentSeen = new Promise((resolve) => {
+    sawCurrent = resolve;
+  });
+  const controller = controllerFor(state, async () => {
+    calls += 1;
+    if (calls === 1) {
+      await new Promise((resolve) => {
+        releaseLate = resolve;
+      });
+      return { status: 200, _data: { success: true, cart: basket(2, "250.00", 2) } };
+    }
+    sawCurrent();
+    await new Promise((resolve) => {
+      releaseCurrent = resolve;
+    });
+    return { status: 200, _data: { success: true, cart: basket(null, "0.00", 0) } };
+  });
+  const loading = controller.loadCart();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const syncing = controller.syncAfterSubmittedOrder();
+  releaseLate();
+  await loading;
+  assert.equal(state.cart, null);
+  await currentSeen;
+  assert.equal(state.cart, null);
+  releaseCurrent();
+  const synced = await syncing;
+  assert.equal(synced.ok, true);
+  assert.equal(state.access, "ready");
+  assert.equal(state.cart.items.length, 0);
+  assert.equal(state.cart.total, "0.00");
+});
+
+test("simulated client: a submitted-order sync tells the other tab to read the current basket", async () => {
+  const state = readyState();
+  const other = readyState();
+  let notified = 0;
+  const otherController = controllerFor(other, async () => ({
+    status: 200,
+    _data: { success: true, cart: basket(null, "0.00", 0) },
+  }));
+  const controller = controllerFor(state, async () => ({
+    status: 200,
+    _data: { success: true, cart: basket(null, "0.00", 0) },
+  }), {
+    notify: () => {
+      notified += 1;
+      return otherController.loadCart();
+    },
+  });
+  const synced = await controller.syncAfterSubmittedOrder();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(synced.ok, true);
+  assert.equal(notified, 1);
+  assert.equal(state.cart.items.length, 0);
+  assert.equal(other.cart.items.length, 0);
+});

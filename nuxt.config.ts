@@ -67,6 +67,12 @@ export default defineNuxtConfig({
       },
     },
     "/checkout": { prerender: false },
+    "/orders": {
+      prerender: false,
+      headers: {
+        "cache-control": "private, no-store, no-cache, must-revalidate",
+      },
+    },
     "/order-confirmation": {
       prerender: false,
       headers: {

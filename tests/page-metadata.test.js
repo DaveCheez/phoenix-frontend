@@ -12,7 +12,9 @@ test("cart and checkout pages set titles and descriptions", () => {
   assert.match(checkoutPage, /title:\s*"Order details \| Phoenix Vanz"/);
   assert.match(checkoutPage, /No payment is taken\./);
   const confirmationPage = readFileSync(new URL("../pages/order-confirmation.vue", import.meta.url), "utf8");
+  const ordersPage = readFileSync(new URL("../pages/orders.vue", import.meta.url), "utf8");
   assert.match(confirmationPage, /title:\s*"Order confirmation \| Phoenix Vanz"/);
+  assert.match(ordersPage, /title:\s*"Your orders \| Phoenix Vanz"/);
 });
 
 test("checkout stays disabled", () => {

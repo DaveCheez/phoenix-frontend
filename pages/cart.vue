@@ -29,6 +29,7 @@ const {
   updateCartItem,
   removeFromCart,
 } = useCart();
+const { showSavedOrders } = useOrderHistory();
 const toast = useToast();
 const recoveryFeedback = ref("");
 const config = useRuntimeConfig();
@@ -372,12 +373,19 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
         Your cart is empty.
       </p>
       <PurchaseTerms />
-      <div v-if="access === 'ready'" class="mt-6 text-center">
+      <div v-if="access === 'ready'" class="mt-6 flex flex-col items-center gap-3 text-center">
         <NuxtLink
           to="/"
           class="rounded bg-gray-800 px-4 py-2 font-bold text-white hover:bg-gray-900"
         >
           Continue Shopping
+        </NuxtLink>
+        <NuxtLink
+          v-if="showSavedOrders"
+          to="/orders"
+          class="font-semibold text-blue-700 hover:underline"
+        >
+          View your submitted orders
         </NuxtLink>
       </div>
     </div>

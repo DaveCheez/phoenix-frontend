@@ -407,6 +407,15 @@ export function createCartController(deps) {
     return run(() => readBasket("cart-refresh"), { lockRequired: deps.locksAvailable() });
   }
 
+  async function syncAfterSubmittedOrder() {
+    generation += 1;
+    return run(async () => {
+      const read = await readBasket("cart-order-sync");
+      if (read?.outcome === "success") return { ok: true, broadcast: true, cart: state.cart };
+      return { ok: false, broadcast: false };
+    }, { lockRequired: deps.locksAvailable(), broadcast: true });
+  }
+
   async function addToCart(productId, quantity = 1, options = []) {
     return run(async () => {
       requireReady();
@@ -588,6 +597,7 @@ export function createCartController(deps) {
     state,
     loadCart,
     refreshBasket,
+    syncAfterSubmittedOrder,
     addToCart,
     setQuantity,
     adjustQuantity,

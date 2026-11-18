@@ -215,7 +215,36 @@ No Stripe in these steps.
    cookie received 401. The basket was not cleared. Dev remains on
    `http://localhost:3000`.
 
-3. PV-DEPOSIT — one-third deposit, then the balance on completion.
+3. PV-ORDER-3 — your orders, completed checkout, and basket synchronisation.
+   Owner-verified in development on 18 November 2026. Production verification
+   is still pending. Not deployed. No migration and no new configuration.
+   `/orders` lists this browser's guest orders from Django. The desktop menu,
+   mobile menu, and empty-basket shortcut show Your orders only after this
+   guest session has at least one saved order. A full reload restores that
+   from the order list. A failed list request does not hide a confirmed
+   session, and losing the guest session hides the links again. Confirmation
+   still reads only `GET /api/orders/<reference>`. A saved order does not depend on
+   the current basket. The first successful create lets Django clear the
+   submitted lines; the frontend reads the basket afterwards and does not call
+   `DELETE /api/cart/clear`. An identical retry keeps the same order.
+   `NUXT_PUBLIC_ORDER_SUBMISSION_ENABLED` stays false in production defaults.
+   `NUXT_PUBLIC_CHECKOUT_ENABLED` stays false. Email delivery and Stripe stay
+   separate.
+   Local check on 18 November 2026: `npm run build` completed on Nuxt 4.4.8,
+   and `npm run test:cart-access` passed 88 tests. A real browser journey
+   against local Django submitted the existing Enhanced and None
+   `unpaid-order-demo` line at quantity 2. Confirmation `PV-5911214C03A5`
+   showed full total 250.00, deposit required 83.33, balance after the deposit
+   166.67, and payment unpaid. The header count became 0. Refresh of Your
+   orders still showed that reference. Adding `order-history-demo` at 60.00
+   left the saved order unchanged. An explicit second submission created
+   `PV-95669E12E591`, both references stayed listed, and the basket was empty.
+   A cookieless client received 401 for both orders and for the list. One
+   committed order `POST` had its response withheld; the page stayed uncertain
+   and the explicit same-key retry returned `PV-E56AE33B2D0F` once. Dev remains
+   on `http://localhost:3000`.
+
+4. PV-DEPOSIT — one-third deposit, then the balance on completion.
    After PV-ORDER. Still unmet. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED`
    as part of the items in Now.
    - Deposit and balance are calculated on the server from the order total.

@@ -7,7 +7,7 @@ import { createEvent } from "h3";
 import type { CartConfig } from "../server/utils/cartConfig.ts";
 import { issueCsrfToken } from "../server/utils/cartCsrf.ts";
 import type { DjangoCall } from "../server/utils/cartActions.ts";
-import { allowlistedOrder, handleCreateOrder, handleOrderConfirmation } from "../server/utils/orderActions.ts";
+import { allowlistedOrder, handleCreateOrder, handleOrderConfirmation, handleOrderList } from "../server/utils/orderActions.ts";
 
 const SECRET = "ab".repeat(32);
 const APP = "cd".repeat(32);
@@ -121,9 +121,86 @@ test("creating and reading an order use the guest credential, not a browser pric
   assert.equal(calls[1].path, "orders/PV-TEST/");
 });
 
+test("order history is a validated guest list and does not start a session", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const summary = {
+    reference: "PV-LIST1",
+    created_at: "2026-11-18T17:05:08.123456+00:00",
+    currency: "GBP",
+    full_total: "250.00",
+    payment_status: "pending_deposit",
+  };
+  const django: DjangoCall = async (input) => {
+    calls.push(input);
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        orders: [{ ...summary, customer_email: "hidden@example.com" }],
+        page: 1,
+        has_more: false,
+        internal: true,
+      },
+    };
+  };
+  const listed = await call(handleOrderList, {
+    method: "GET",
+    path: "/?page=1",
+    headers: { cookie: `phoenix_guest_dev=${GUEST}` },
+    django,
+  });
+  assert.equal(listed.status, 502);
+  assert.equal(listed.json.code, "ORDER_PROTOCOL_INCOMPATIBLE");
+  assert.equal(calls[0].path, "orders/?page=1");
+  assert.equal(calls[0].bearer, GUEST);
+  assert.equal(calls[0].method, "GET");
+
+  const accepted = await call(handleOrderList, {
+    method: "GET",
+    path: "/?page=1",
+    headers: { cookie: `phoenix_guest_dev=${GUEST}` },
+    django: async () => ({
+      ok: true,
+      status: 200,
+      body: { success: true, orders: [summary], page: 1, has_more: true },
+    }),
+  });
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(accepted.json.orders, [summary]);
+  assert.equal(accepted.json.has_more, true);
+  assert.equal(JSON.stringify(accepted.json).includes("customer_email"), false);
+
+  const empty = await call(handleOrderList, {
+    method: "GET",
+    path: "/?page=2",
+    headers: { cookie: `phoenix_guest_dev=${GUEST}` },
+    django: async (input) => {
+      calls.push(input);
+      return { ok: true, status: 200, body: { success: true, orders: [], page: 2, has_more: false } };
+    },
+  });
+  assert.equal(empty.status, 200);
+  assert.deepEqual(empty.json.orders, []);
+  assert.equal(calls.at(-1)?.path, "orders/?page=2");
+
+  const anonymous = await call(handleOrderList, {
+    method: "GET",
+    path: "/?page=1",
+    headers: {},
+    django: async (input) => {
+      calls.push(input);
+      return { ok: true, status: 200, body: { success: true, orders: [], page: 1, has_more: false } };
+    },
+  });
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.json.code, "CART_SESSION_REQUIRED");
+  assert.equal(calls.at(-1)?.path, "orders/?page=2");
+});
+
 async function call(
   handler: (event: ReturnType<typeof createEvent>, routeConfig: CartConfig, django: DjangoCall) => Promise<unknown>,
-  input: { method: string; headers: Record<string, string>; body?: unknown; django: DjangoCall },
+  input: { method: string; headers: Record<string, string>; body?: unknown; path?: string; django: DjangoCall },
 ) {
   let routeConfig = config;
   const server = createServer(async (req, res) => {
@@ -139,7 +216,7 @@ async function call(
   if (!address || typeof address === "string") throw new Error("No test port");
   routeConfig = { ...config, origin: `http://127.0.0.1:${address.port}`, host: `127.0.0.1:${address.port}` };
   try {
-    const response = await fetch(`http://127.0.0.1:${address.port}/`, {
+    const response = await fetch(`http://127.0.0.1:${address.port}${input.path || "/"}`, {
       method: input.method,
       headers: { origin: routeConfig.origin, ...input.headers },
       body: input.body === undefined ? undefined : JSON.stringify(input.body),

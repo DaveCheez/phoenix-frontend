@@ -17,9 +17,14 @@ export const ORDER_MESSAGES = {
   conflict: "This request conflicts with an earlier order attempt. Do not submit a different order.",
   uncertain: "The order request was sent, but the result is not confirmed. It may have been saved. Retry the same request.",
   blocked: "An earlier order request may have been saved, and its original details are no longer available in this browser. A new order cannot be submitted from this page.",
-  resolved: "This order attempt is already complete. Place a different order only if you mean to.",
+  resolved: "You have already submitted this order.",
+  basketRefresh: "Your order was saved, but the basket could not be refreshed. Review your basket before starting another order.",
   unavailable: "This order is not available.",
   service: "The order could not be confirmed. Try again.",
+  listUnavailable: "Submitted orders are not available for this browser's guest session.",
+  listService: "Your orders could not be loaded. This is not the same as having no orders.",
+  listEmpty: "You have no submitted orders in this browser session.",
+  listScope: "These orders are accessible using this browser's current guest session. They are not available as a permanent account or on another device.",
   access: "Start a basket before placing an order.",
   year: "Enter a vehicle year from 1900 to 2100.",
   email: "Enter a valid email address.",
@@ -36,6 +41,10 @@ export const BASKET_BLOCK_MESSAGES = {
 const MONEY = /^[0-9]+\.[0-9]{2}$/;
 const REVIEW_TOKEN = /^[0-9a-f]{64}$/;
 const REFERENCE = /^[A-Za-z0-9-]{4,32}$/;
+const PAGE = /^[1-9][0-9]{0,3}$/;
+const CREATED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const SUMMARY_FIELDS = ["reference", "created_at", "currency", "full_total", "payment_status"];
+const LIST_FIELDS = ["success", "orders", "page", "has_more"];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REQUIRED_TEXT = [
   "customer_name",
@@ -126,6 +135,49 @@ export function validateOrderRecord(order) {
     payment_status: order.payment_status,
     items,
   };
+}
+
+export function paymentStatusLabel(status) {
+  return status === "pending_deposit" ? "Unpaid" : "";
+}
+
+export function formatSubmittedAt(value) {
+  if (typeof value !== "string" || !CREATED_AT.test(value)) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/London",
+  }).format(date);
+}
+
+export function validateOrderList(payload, page) {
+  if (!Number.isInteger(page) || !PAGE.test(String(page))) return null;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || payload.success !== true) return null;
+  if (Object.keys(payload).some((key) => !LIST_FIELDS.includes(key))) return null;
+  if (payload.page !== page || typeof payload.has_more !== "boolean" || !Array.isArray(payload.orders)) return null;
+  if (payload.orders.length > 20) return null;
+  const orders = [];
+  for (const row of payload.orders) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+    if (Object.keys(row).some((key) => !SUMMARY_FIELDS.includes(key))) return null;
+    if (typeof row.reference !== "string" || !REFERENCE.test(row.reference)) return null;
+    if (typeof row.created_at !== "string" || !CREATED_AT.test(row.created_at)) return null;
+    if (row.currency !== "GBP" || moneyPence(row.full_total) == null) return null;
+    if (row.payment_status !== "pending_deposit") return null;
+    orders.push({
+      reference: row.reference,
+      created_at: row.created_at,
+      currency: "GBP",
+      full_total: row.full_total,
+      payment_status: "pending_deposit",
+    });
+  }
+  return { orders, page, has_more: payload.has_more };
 }
 
 export function basketSubmissionBlock(state) {
@@ -253,6 +305,7 @@ export function createOrderController(deps) {
     key: null,
     body: null,
     reference: meta?.state === "resolved" ? meta.reference : null,
+    basketWarning: false,
   };
   let busy = false;
   let csrfToken = "";
@@ -306,7 +359,8 @@ export function createOrderController(deps) {
       memory.body = null;
       memory.reference = order.reference;
       writeMeta(storage, { state: "resolved", reference: order.reference });
-      return { outcome: "success", order, sent: true, message: "" };
+      deps.onSavedOrder?.();
+      return { outcome: "success", order, sent: true, message: "", syncBasket: true };
     }
     if (result.status != null && result.status >= 400 && result.status < 500) {
       if (code === "CART_CHANGED") {
@@ -388,6 +442,19 @@ export function createOrderController(deps) {
         // The basket client records its own unconfirmed state.
       }
     }
+    if (result?.syncBasket && deps.syncBasket) {
+      let synced = null;
+      try {
+        synced = await deps.syncBasket();
+      } catch {
+        synced = null;
+      }
+      if (!synced?.ok) {
+        memory.basketWarning = true;
+        return { ...result, basketWarning: ORDER_MESSAGES.basketRefresh };
+      }
+      memory.basketWarning = false;
+    }
     return result;
   }
 
@@ -439,12 +506,17 @@ export function createOrderController(deps) {
     memory.reference = null;
     memory.key = null;
     memory.body = null;
+    memory.basketWarning = false;
     writeMeta(storage, null);
     return true;
   }
 
   function status() {
-    return { phase: memory.phase, reference: memory.reference };
+    return {
+      phase: memory.phase,
+      reference: memory.reference,
+      basketWarning: memory.basketWarning,
+    };
   }
 
   return { submit, retry, startNewOrder, status };
@@ -467,12 +539,127 @@ export async function readOrderConfirmation(fetchImpl, reference) {
   if (result.ok && result.status === 200 && result.data?.success === true) {
     const order = validateOrderRecord(result.data.order);
     if (!order || order.reference !== reference) {
-      return { outcome: "service", message: ORDER_MESSAGES.service };
+      return { outcome: "service", message: ORDER_MESSAGES.service, status: result.status };
     }
-    return { outcome: "success", order };
+    return { outcome: "success", order, status: result.status };
   }
   if (result.status === 401 || result.status === 404) {
-    return { outcome: "unavailable", message: ORDER_MESSAGES.unavailable };
+    return { outcome: "unavailable", message: ORDER_MESSAGES.unavailable, status: result.status };
   }
-  return { outcome: "service", message: ORDER_MESSAGES.service };
+  return { outcome: "service", message: ORDER_MESSAGES.service, status: result.status };
+}
+
+export async function readOrderList(fetchImpl, page) {
+  if (!Number.isInteger(page) || !PAGE.test(String(page))) {
+    return { outcome: "service", message: ORDER_MESSAGES.listService };
+  }
+  let result;
+  try {
+    result = readResult(await fetchImpl(`/api/orders?page=${page}`, {
+      method: "GET",
+      retry: 0,
+      headers: { accept: "application/json" },
+    }));
+  } catch (error) {
+    result = readResult(error);
+  }
+  if (result.ok && result.status === 200) {
+    const list = validateOrderList(result.data, page);
+    if (!list) return { outcome: "service", message: ORDER_MESSAGES.listService };
+    return { outcome: list.orders.length === 0 ? "empty" : "success", list };
+  }
+  if (result.status === 401 || result.status === 404) {
+    return { outcome: "unavailable", message: ORDER_MESSAGES.listUnavailable, status: result.status };
+  }
+  return { outcome: "service", message: ORDER_MESSAGES.listService, status: result.status };
+}
+
+const LOST_ORDER_ACCESS = new Set(["not_started", "legacy", "access_unavailable"]);
+
+export function orderHistoryLost(access) {
+  return LOST_ORDER_ACCESS.has(access);
+}
+
+export function createOrderHistory(deps) {
+  const state = deps.state || { phase: "unknown" };
+  let epoch = 0;
+  let revision = 0;
+  let pageOne = null;
+
+  function show() {
+    return state.phase === "saved";
+  }
+
+  function phase() {
+    return state.phase;
+  }
+
+  function loseSession() {
+    epoch += 1;
+    revision += 1;
+    state.phase = "none";
+    pageOne = null;
+  }
+
+  function noteSavedOrder() {
+    if (state.phase === "saved") return;
+    revision += 1;
+    state.phase = "saved";
+    pageOne = null;
+  }
+
+  function finish(snapshot, page, result) {
+    if (snapshot.epoch !== epoch) return { ...result, stale: true };
+    if (snapshot.revision !== revision) {
+      if (result.outcome === "success") state.phase = "saved";
+      return result.outcome === "success" ? result : { ...result, stale: true };
+    }
+    if (result.outcome === "unavailable") state.phase = "none";
+    else if (result.outcome === "success") state.phase = "saved";
+    else if (result.outcome === "empty" && page === 1) state.phase = "none";
+    return result;
+  }
+
+  function read(page, options = {}) {
+    const refresh = options.refresh === true;
+    if (
+      page === 1
+      && !refresh
+      && pageOne
+      && pageOne.epoch === epoch
+      && pageOne.revision === revision
+    ) {
+      return pageOne.promise;
+    }
+    const snapshot = { epoch, revision };
+    const promise = readOrderList(deps.fetch, page).then((result) => {
+      const finished = finish(snapshot, page, result);
+      if (
+        pageOne
+        && pageOne.promise === promise
+        && (finished.stale || finished.outcome === "unavailable" || finished.outcome === "service")
+      ) {
+        pageOne = null;
+      }
+      return finished;
+    });
+    if (page === 1) pageOne = { epoch, revision, promise };
+    return promise;
+  }
+
+  async function readConfirmation(reference) {
+    const snapshot = { epoch, revision };
+    const result = await readOrderConfirmation(deps.fetch, reference);
+    if (snapshot.epoch !== epoch) return { ...result, stale: true };
+    if (result.outcome === "success") {
+      if (snapshot.revision === revision) noteSavedOrder();
+      else state.phase = "saved";
+      return result;
+    }
+    if (snapshot.revision !== revision) return { ...result, stale: true };
+    if (result.status === 401) loseSession();
+    return result;
+  }
+
+  return { show, phase, loseSession, noteSavedOrder, read, readConfirmation };
 }
