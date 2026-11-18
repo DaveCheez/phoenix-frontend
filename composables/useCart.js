@@ -99,6 +99,7 @@ export function useCart() {
     isItemPending: () => state.pending,
     cartItemCount: totalItems,
     loadCart: api.loadCart,
+    syncAfterSubmittedOrder: api.syncAfterSubmittedOrder,
     startNewBasket: api.startNewBasket,
     openEmptyBasket: api.openEmptyBasket,
     refreshBasket: api.refreshBasket,

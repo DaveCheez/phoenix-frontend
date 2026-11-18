@@ -89,15 +89,32 @@
         >
           {{ notice }}
         </p>
-        <p v-if="attemptPhase === 'resolved'" class="mb-4 text-sm text-gray-700">
+        <div v-if="attemptPhase === 'resolved'" class="mb-4 space-y-3 text-sm text-gray-800" role="status">
+          <p>You have already submitted this order.</p>
+          <p>Changes to your basket apply only to a new order.</p>
           <NuxtLink
             v-if="resolvedReference"
-            :to="`/order-confirmation?reference=${resolvedReference}`"
-            class="font-semibold text-blue-700 hover:underline"
+            :to="`/order-confirmation?reference=${encodeURIComponent(resolvedReference)}`"
+            class="inline-flex font-semibold text-blue-700 hover:underline"
           >
-            View the submitted order
+            View submitted order
           </NuxtLink>
-        </p>
+          <button
+            v-if="lines.length"
+            type="button"
+            class="block rounded border border-gray-900 px-4 py-3 font-semibold"
+            @click="requestDifferentOrder"
+          >
+            Start another order from this basket
+          </button>
+          <NuxtLink
+            v-else-if="access === 'ready'"
+            to="/"
+            class="inline-flex font-semibold text-blue-700 hover:underline"
+          >
+            Continue shopping
+          </NuxtLink>
+        </div>
 
         <form class="space-y-4" novalidate @submit.prevent="submitOrder">
           <div v-for="field in textFields" :key="field.key">
@@ -161,14 +178,6 @@
           @click="retryOrder"
         >
           Retry the same order request
-        </button>
-        <button
-          v-if="attemptPhase === 'resolved'"
-          type="button"
-          class="mt-3 w-full rounded border border-gray-900 px-4 py-3 font-semibold"
-          @click="requestDifferentOrder"
-        >
-          Place a different unpaid order
         </button>
         <NuxtLink
           v-if="attemptPhase === 'blocked' || attemptPhase === 'conflict'"
@@ -250,7 +259,11 @@ const basketCode = computed(() => basketSubmissionBlock({
 }));
 const basketNotice = computed(() => (basketCode.value ? BASKET_BLOCK_MESSAGES[basketCode.value] : ""));
 const inputsLocked = computed(() =>
-  submitting.value || attemptPhase.value === "uncertain" || attemptPhase.value === "conflict" || attemptPhase.value === "blocked",
+  submitting.value
+  || attemptPhase.value === "uncertain"
+  || attemptPhase.value === "conflict"
+  || attemptPhase.value === "blocked"
+  || attemptPhase.value === "resolved",
 );
 const submitDisabled = computed(() =>
   submitting.value

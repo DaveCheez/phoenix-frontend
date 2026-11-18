@@ -4,7 +4,17 @@
 
     <p v-if="state === 'loading'" class="text-gray-700" role="status">Loading your order…</p>
 
-    <div v-else-if="state === 'success' && order" class="space-y-6 rounded-lg bg-white p-6 shadow-md">
+    <template v-else>
+      <p
+        v-if="basketWarning && state === 'success'"
+        class="mb-4 rounded-md bg-amber-50 p-3 text-sm text-amber-950"
+        role="status"
+      >
+        Your order was saved, but the basket could not be refreshed. Review your basket before starting another order.
+        <NuxtLink to="/cart" class="ml-1 font-semibold underline">Review your basket</NuxtLink>
+      </p>
+
+    <div v-if="state === 'success' && order" class="space-y-6 rounded-lg bg-white p-6 shadow-md">
       <p class="text-lg">Your order has been received. No payment has been taken.</p>
       <p>Your order is awaiting a deposit and confirmation of fitting arrangements.</p>
       <p>Reference: <strong>{{ order.reference }}</strong></p>
@@ -93,12 +103,13 @@
         Try again
       </button>
     </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
-import { readOrderConfirmation } from "~/utils/orderClient";
+import { ORDER_MESSAGES } from "~/utils/orderClient";
 
 useHead({
   title: "Order confirmation | Phoenix Vanz",
@@ -111,15 +122,13 @@ useHead({
 });
 
 const route = useRoute();
+const orders = useOrderSubmission();
+const history = useOrderHistory();
 const reference = computed(() => String(route.query.reference || ""));
+const basketWarning = computed(() => orders.status().basketWarning);
 const state = ref("loading");
 const message = ref("");
 const order = ref(null);
-
-async function nuxtFetch(path, options = {}) {
-  const response = await $fetch.raw(path, options);
-  return { status: response.status, _data: response._data };
-}
 
 async function load() {
   order.value = null;
@@ -130,7 +139,15 @@ async function load() {
   }
   state.value = "loading";
   message.value = "";
-  const result = await readOrderConfirmation(nuxtFetch, reference.value);
+  const result = await history.readConfirmation(reference.value);
+  if (result.stale || result.outcome !== "success") {
+    order.value = null;
+  }
+  if (result.stale) {
+    message.value = ORDER_MESSAGES.unavailable;
+    state.value = "unavailable";
+    return;
+  }
   if (result.outcome === "success") {
     order.value = result.order;
     state.value = "success";

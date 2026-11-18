@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import logoUrl from "~/assets/images/logo.png";
 import { asArray } from "~/utils/apiData";
+import { orderHistoryLost } from "~/utils/orderClient";
 
 const route = useRoute();
 const isOpen = ref(false);
@@ -11,7 +12,8 @@ const productCloseTimeout = ref(null);
 const mobileMenuToggle = ref(null);
 const mobileFirstLink = ref(null);
 
-const { cartItemCount, loadCart } = useCart();
+const { access, cartItemCount, loadCart } = useCart();
+const { showSavedOrders, restore } = useOrderHistory();
 const cartAccessibleLabel = computed(() => {
   const count = Number(cartItemCount.value || 0);
   return `Shopping cart, ${count} ${count === 1 ? "item" : "items"}`;
@@ -49,6 +51,12 @@ onMounted(async () => {
     await loadCart();
   } catch (error) {
     console.error("Navigation cart load failed:", error);
+  }
+  if (orderHistoryLost(access.value)) return;
+  try {
+    await restore();
+  } catch (error) {
+    console.error("Navigation order history failed:", error);
   }
 });
 
@@ -189,6 +197,15 @@ onBeforeUnmount(() => {
           </ul>
         </li>
 
+        <li v-if="showSavedOrders">
+          <NuxtLink
+            to="/orders"
+            class="text-white hover:text-blue-300"
+            :aria-current="currentPage('/orders')"
+          >
+            Your orders
+          </NuxtLink>
+        </li>
         <li>
           <NuxtLink
             to="/contact"
@@ -276,6 +293,16 @@ onBeforeUnmount(() => {
               @click="closeMobileMenu()"
             >
               Contact
+            </NuxtLink>
+
+            <NuxtLink
+              v-if="showSavedOrders"
+              to="/orders"
+              class="text-lg text-white hover:text-blue-300"
+              :aria-current="currentPage('/orders')"
+              @click="closeMobileMenu()"
+            >
+              Your orders
             </NuxtLink>
 
             <NuxtLink

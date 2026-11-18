@@ -8,6 +8,12 @@ change platform settings from this document.
 `feature/public-order-api`. It is not deployed. Checkout stays disabled.
 The review below is historical and is not rewritten.
 
+18 November 2026: PV-ORDER-3, submitted-order access, was owner-verified in
+development on `fix/submitted-order-access`. Production verification is still
+pending. It is not deployed. No migration and no new configuration are
+required. Production order submission and online payments stay disabled.
+Email delivery and Stripe stay separate.
+
 `todos.txt` is the status source. Test transcripts stay in
 `docs/guest-cart-access.md` and in the backend documents named below.
 
