@@ -1,10 +1,10 @@
 <template>
-  <div class="max-w-xl mx-auto p-6">
-    <h1 class="text-2xl font-bold mb-4">Checkout</h1>
+  <div class="container mx-auto px-4 py-8 pt-28">
+    <h1 class="mb-6 text-center text-3xl font-bold">Order details</h1>
 
     <div
-      v-if="!checkoutEnabled"
-      class="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950"
+      v-if="!orderSubmissionEnabled"
+      class="mx-auto max-w-xl rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950"
     >
       <h2 class="text-lg font-semibold">Online payment is temporarily unavailable</h2>
       <p class="mt-2">
@@ -19,210 +19,331 @@
       </NuxtLink>
     </div>
 
-    <div v-else-if="step === 1">
-      <form @submit.prevent="goToPayment" class="space-y-4">
-        <div>
-          <label class="block mb-1">Full Name</label>
-          <input
-            v-model="address.name"
-            required
-            class="w-full border p-2 rounded"
-          />
+    <div v-else class="mx-auto flex max-w-5xl flex-col gap-8 lg:flex-row">
+      <section class="rounded-lg bg-white p-6 shadow-md lg:w-2/3">
+        <h2 class="mb-4 text-2xl font-bold">Your basket</h2>
+        <CartSessionNotice
+          class="mb-4"
+          :access="access === 'loading' ? '' : access"
+          :pending="pending"
+          @action="recoverFromNotice"
+        />
+        <p v-if="basketNotice" class="mb-4 rounded-md bg-amber-50 p-3 text-sm text-amber-950" role="status">
+          {{ basketNotice }}
+        </p>
+        <ul v-if="access === 'ready' && lines.length" class="divide-y">
+          <li v-for="item in lines" :key="item.item_id" class="py-4">
+            <h3 class="text-lg font-semibold">{{ item.name }}</h3>
+            <ul v-if="selectedOptions(item).length" class="mt-3 space-y-2">
+              <li
+                v-for="option in selectedOptions(item)"
+                :key="`${item.item_id}-${option.group_id}-${option.option_id}-${option.option_name}`"
+                class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm text-gray-700"
+              >
+                <span class="min-w-0 break-words">{{ option.group_name }}: {{ option.option_name }}</span>
+                <span class="shrink-0">{{ optionAdjustmentLabel(option.price_adjustment) }}</span>
+              </li>
+            </ul>
+            <dl class="mt-4 space-y-1 text-sm text-gray-700">
+              <div class="flex flex-wrap justify-between gap-x-3">
+                <dt>Configured unit price</dt>
+                <dd>{{ moneyLabel(item.configured_unit_price ?? item.price) }}</dd>
+              </div>
+              <div class="flex flex-wrap justify-between gap-x-3">
+                <dt>Quantity</dt>
+                <dd>{{ item.quantity }}</dd>
+              </div>
+              <div class="flex flex-wrap justify-between gap-x-3 font-semibold text-gray-900">
+                <dt>Line total</dt>
+                <dd>{{ moneyLabel(item.line_total) }}</dd>
+              </div>
+            </dl>
+          </li>
+        </ul>
+        <p v-else-if="access === 'ready'" class="text-gray-600">Your basket is empty.</p>
+        <div class="mt-4 border-t pt-4">
+          <PurchaseTerms />
+          <div class="mt-4 flex justify-between text-xl font-bold text-gray-800">
+            <span>Total</span>
+            <span>{{ moneyLabel(cartTotal) }}</span>
+          </div>
         </div>
+        <NuxtLink to="/cart" class="mt-4 inline-flex font-semibold text-blue-700 hover:underline">
+          Back to basket
+        </NuxtLink>
+      </section>
 
-        <div>
-          <label class="block mb-1">Email</label>
-          <input
-            v-model="address.email"
-            type="email"
-            required
-            class="w-full border p-2 rounded"
-          />
-        </div>
+      <section class="rounded-lg bg-white p-6 shadow-md lg:w-1/3">
+        <h2 class="mb-2 text-2xl font-bold">Customer and vehicle</h2>
+        <p class="mb-4 text-sm leading-relaxed text-gray-700">
+          No payment will be taken. Phoenix Vanz will confirm fitment and fitting arrangements.
+        </p>
 
-        <div>
-          <label class="block mb-1">Address</label>
-          <input
-            v-model="address.line1"
-            required
-            class="w-full border p-2 rounded"
-          />
-        </div>
+        <p v-if="submitting" class="mb-4 text-sm font-semibold text-gray-800" role="status">
+          Submitting unpaid order…
+        </p>
+        <p
+          v-if="notice"
+          class="mb-4 rounded-md bg-amber-50 p-3 text-sm text-amber-950"
+          role="alert"
+        >
+          {{ notice }}
+        </p>
+        <p v-if="attemptPhase === 'resolved'" class="mb-4 text-sm text-gray-700">
+          <NuxtLink
+            v-if="resolvedReference"
+            :to="`/order-confirmation?reference=${resolvedReference}`"
+            class="font-semibold text-blue-700 hover:underline"
+          >
+            View the submitted order
+          </NuxtLink>
+        </p>
 
-        <div>
-          <label class="block mb-1">City</label>
-          <input
-            v-model="address.city"
-            required
-            class="w-full border p-2 rounded"
-          />
-        </div>
+        <form class="space-y-4" novalidate @submit.prevent="submitOrder">
+          <div v-for="field in textFields" :key="field.key">
+            <label :for="field.key" class="mb-1 block font-medium">{{ field.label }}</label>
+            <input
+              :id="field.key"
+              v-model="fields[field.key]"
+              :type="field.type"
+              :autocomplete="field.autocomplete"
+              :inputmode="field.inputmode"
+              :disabled="inputsLocked"
+              class="w-full rounded border p-2 disabled:bg-gray-100"
+              :aria-invalid="fieldErrors[field.key] ? 'true' : 'false'"
+              :aria-describedby="fieldErrors[field.key] ? `${field.key}-error` : undefined"
+            />
+            <p
+              v-if="fieldErrors[field.key]"
+              :id="`${field.key}-error`"
+              class="mt-1 text-sm text-red-700"
+              role="alert"
+            >
+              {{ fieldErrors[field.key] }}
+            </p>
+          </div>
 
-        <div>
-          <label class="block mb-1">Postcode</label>
-          <input
-            v-model="address.postcode"
-            required
-            class="w-full border p-2 rounded"
-          />
-        </div>
+          <div>
+            <label for="customer_notes" class="mb-1 block font-medium">Notes (optional)</label>
+            <textarea
+              id="customer_notes"
+              v-model="fields.customer_notes"
+              rows="3"
+              :disabled="inputsLocked"
+              class="w-full rounded border p-2 disabled:bg-gray-100"
+              :aria-invalid="fieldErrors.customer_notes ? 'true' : 'false'"
+              :aria-describedby="fieldErrors.customer_notes ? 'customer_notes-error' : undefined"
+            />
+            <p
+              v-if="fieldErrors.customer_notes"
+              id="customer_notes-error"
+              class="mt-1 text-sm text-red-700"
+              role="alert"
+            >
+              {{ fieldErrors.customer_notes }}
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            class="w-full rounded bg-gray-900 px-4 py-3 font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="submitDisabled"
+          >
+            {{ submitting ? "Submitting unpaid order…" : "Submit unpaid order" }}
+          </button>
+        </form>
 
         <button
-          type="submit"
-          class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          v-if="attemptPhase === 'uncertain'"
+          type="button"
+          class="mt-3 w-full rounded border border-gray-900 px-4 py-3 font-semibold disabled:opacity-50"
+          :disabled="submitting"
+          @click="retryOrder"
         >
-          Continue to Payment
+          Retry the same order request
         </button>
-      </form>
-    </div>
-
-    <div v-else-if="step === 2">
-      <h2 class="text-xl font-semibold mb-4">Payment</h2>
-      <p v-if="paymentError" class="mb-4 rounded bg-red-50 p-3 text-red-700">
-        {{ paymentError }}
-      </p>
-      <div id="card-element" class="border p-4 rounded"></div>
-      <button
-        @click="pay"
-        :disabled="isPaying || !!paymentError"
-        class="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {{ isPaying ? "Processing..." : "Pay" }}
-      </button>
+        <button
+          v-if="attemptPhase === 'resolved'"
+          type="button"
+          class="mt-3 w-full rounded border border-gray-900 px-4 py-3 font-semibold"
+          @click="requestDifferentOrder"
+        >
+          Place a different unpaid order
+        </button>
+        <NuxtLink
+          v-if="attemptPhase === 'blocked' || attemptPhase === 'conflict'"
+          to="/contact"
+          class="mt-4 inline-flex font-semibold text-blue-700 hover:underline"
+        >
+          Contact Phoenix Vanz
+        </NuxtLink>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, reactive, ref } from "vue";
+import { logCartFailure } from "~/utils/cartClient";
+import { BASKET_BLOCK_MESSAGES, basketSubmissionBlock } from "~/utils/orderClient";
 
 useHead({
-  title: "Checkout | Phoenix Vanz",
+  title: "Order details | Phoenix Vanz",
   meta: [
     {
       name: "description",
-      content:
-        "Online checkout is temporarily unavailable. Contact Phoenix Vanz to order.",
+      content: "Review your Phoenix Vanz basket and send unpaid order details. No payment is taken.",
     },
   ],
 });
 
 const router = useRouter();
 const config = useRuntimeConfig();
-const checkoutEnabled = computed(() =>
-  config.public.checkoutEnabled === true ||
-  String(config.public.checkoutEnabled).toLowerCase() === "true",
+const orderSubmissionEnabled = computed(() =>
+  config.public.orderSubmissionEnabled === true ||
+  String(config.public.orderSubmissionEnabled).toLowerCase() === "true",
 );
-const step = ref(1);
-const paymentError = ref("");
-const isPaying = ref(false);
-const address = ref({
-  name: "",
-  email: "",
-  line1: "",
-  city: "",
-  postcode: "",
+
+const {
+  access,
+  pending,
+  cart,
+  cartTotal,
+  loadCart,
+  recoverBasket,
+} = useCart();
+const orders = useOrderSubmission();
+
+const fields = reactive({
+  customer_name: "",
+  customer_email: "",
+  customer_phone: "",
+  vehicle_make: "",
+  vehicle_model: "",
+  vehicle_year: "",
+  vehicle_wheelbase: "",
+  vehicle_registration: "",
+  customer_notes: "",
 });
+const fieldErrors = ref({});
+const notice = ref("");
+const submitting = ref(false);
+const attemptPhase = ref("idle");
+const resolvedReference = ref("");
 
-let stripe;
-let elements;
-let card;
+const textFields = [
+  { key: "customer_name", label: "Full name", type: "text", autocomplete: "name" },
+  { key: "customer_email", label: "Email", type: "email", autocomplete: "email" },
+  { key: "customer_phone", label: "Phone", type: "tel", autocomplete: "tel" },
+  { key: "vehicle_make", label: "Vehicle make", type: "text", autocomplete: "off" },
+  { key: "vehicle_model", label: "Vehicle model", type: "text", autocomplete: "off" },
+  { key: "vehicle_year", label: "Vehicle year", type: "text", autocomplete: "off", inputmode: "numeric" },
+  { key: "vehicle_wheelbase", label: "Wheelbase", type: "text", autocomplete: "off" },
+  { key: "vehicle_registration", label: "Vehicle registration (optional)", type: "text", autocomplete: "off" },
+];
 
-const goToPayment = async () => {
-  paymentError.value = "";
-  step.value = 2;
-  await nextTick();
+const lines = computed(() => (access.value === "ready" ? cart.value?.items || [] : []));
+const basketCode = computed(() => basketSubmissionBlock({
+  cart: cart.value,
+  access: access.value,
+  pending: pending.value,
+}));
+const basketNotice = computed(() => (basketCode.value ? BASKET_BLOCK_MESSAGES[basketCode.value] : ""));
+const inputsLocked = computed(() =>
+  submitting.value || attemptPhase.value === "uncertain" || attemptPhase.value === "conflict" || attemptPhase.value === "blocked",
+);
+const submitDisabled = computed(() =>
+  submitting.value
+  || Boolean(basketCode.value)
+  || attemptPhase.value === "uncertain"
+  || attemptPhase.value === "blocked"
+  || attemptPhase.value === "conflict"
+  || attemptPhase.value === "resolved",
+);
 
-  try {
-    await loadStripe();
-  } catch (error) {
-    console.error("Stripe initialisation failed:", error);
-    paymentError.value =
-      error instanceof Error
-        ? error.message
-        : "Online checkout is not available.";
-  }
+const syncAttempt = () => {
+  const current = orders.status();
+  attemptPhase.value = current.phase;
+  resolvedReference.value = current.reference || "";
 };
 
-const loadStripe = async () => {
-  const publishableKey = String(
-    config.public.stripePublishableKey || "",
-  ).trim();
-
-  if (!publishableKey) {
-    throw new Error(
-      "Stripe is not configured. Set NUXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.",
-    );
+const applyResult = async (result) => {
+  syncAttempt();
+  if (!result || result.outcome === "duplicate") return;
+  if (result.outcome === "success") {
+    await router.push({ path: "/order-confirmation", query: { reference: result.order.reference } });
+    return;
   }
-
-  if (!/^pk_(test|live)_/.test(publishableKey)) {
-    throw new Error(
-      "The Stripe browser key is invalid. Use a publishable key beginning pk_test_ or pk_live_ — never a secret key.",
-    );
-  }
-
-  const stripeJs = await import("@stripe/stripe-js");
-  stripe = await stripeJs.loadStripe(publishableKey);
-  if (!stripe) {
-    throw new Error("Stripe could not be initialised.");
-  }
-
-  elements = stripe.elements();
-  card = elements.create("card");
-  card.mount("#card-element");
+  notice.value = result.message || "";
+  if (result.field) fieldErrors.value = { [result.field]: result.message };
 };
 
-const pay = async () => {
-  if (!stripe || !card || isPaying.value) return;
-
-  paymentError.value = "";
-  isPaying.value = true;
-
+const submitOrder = async () => {
+  if (submitDisabled.value) return;
+  notice.value = "";
+  fieldErrors.value = {};
+  submitting.value = true;
   try {
-    const { paymentMethod, error } = await stripe.createPaymentMethod({
-      type: "card",
-      card,
-      billing_details: {
-        name: address.value.name,
-        email: address.value.email,
-        address: {
-          line1: address.value.line1,
-          city: address.value.city,
-          postal_code: address.value.postcode,
-        },
-      },
-    });
-
-    if (error) {
-      paymentError.value = error.message || "Payment details are invalid.";
-      return;
-    }
-
-    const response = await fetch("/api/place-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        address: address.value,
-        paymentMethodId: paymentMethod.id,
-      }),
-    });
-
-    if (!response.ok) {
-      const details = await response.text();
-      console.error("Order submission failed:", details);
-      paymentError.value =
-        "Online checkout is not available yet. Please contact Phoenix Vanz to order.";
-      return;
-    }
-
-    await router.push("/order-confirmation");
-  } catch (error) {
-    console.error("Checkout failed:", error);
-    paymentError.value =
-      "Online checkout is not available. Please contact Phoenix Vanz to order.";
+    await applyResult(await orders.submit(fields));
   } finally {
-    isPaying.value = false;
+    submitting.value = false;
+    syncAttempt();
   }
 };
+
+const retryOrder = async () => {
+  if (submitting.value || attemptPhase.value !== "uncertain") return;
+  notice.value = "";
+  submitting.value = true;
+  try {
+    await applyResult(await orders.retry());
+  } finally {
+    submitting.value = false;
+    syncAttempt();
+  }
+};
+
+const requestDifferentOrder = () => {
+  if (!orders.startNewOrder()) return;
+  notice.value = "";
+  syncAttempt();
+};
+
+const recoverFromNotice = async () => {
+  try {
+    await recoverBasket();
+  } catch (error) {
+    logCartFailure("cart-refresh", error);
+    notice.value = error?.customerMessage || "The basket could not be confirmed.";
+  }
+};
+
+const serverMoney = (value) => {
+  if (value == null || value === "") return null;
+  const text = String(value).trim();
+  return /^[0-9]+\.[0-9]{2}$/.test(text) ? text : null;
+};
+
+const moneyLabel = (value) => {
+  const money = serverMoney(value);
+  return money == null ? "Unavailable" : `£${money}`;
+};
+
+const optionAdjustmentLabel = (value) => {
+  const money = serverMoney(value);
+  if (money == null) return "Unavailable";
+  return money === "0.00" ? "Included" : `+£${money}`;
+};
+
+const selectedOptions = (item) => (Array.isArray(item?.selected_options) ? item.selected_options : []);
+
+onMounted(async () => {
+  syncAttempt();
+  if (!orderSubmissionEnabled.value) return;
+  try {
+    await loadCart();
+  } catch (error) {
+    logCartFailure("cart-read", error);
+  }
+});
 </script>

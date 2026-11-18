@@ -34,6 +34,7 @@ export default defineNuxtConfig({
     public: {
       siteUrl: "http://localhost:3000",
       checkoutEnabled: false,
+      orderSubmissionEnabled: false,
       stripePublishableKey: "",
     },
   },
@@ -51,6 +52,23 @@ export default defineNuxtConfig({
       },
     },
     "/api/contact": {
+      headers: {
+        "cache-control": "private, no-store, no-cache, must-revalidate",
+      },
+    },
+    "/api/orders": {
+      headers: {
+        "cache-control": "private, no-store, no-cache, must-revalidate",
+      },
+    },
+    "/api/orders/**": {
+      headers: {
+        "cache-control": "private, no-store, no-cache, must-revalidate",
+      },
+    },
+    "/checkout": { prerender: false },
+    "/order-confirmation": {
+      prerender: false,
       headers: {
         "cache-control": "private, no-store, no-cache, must-revalidate",
       },

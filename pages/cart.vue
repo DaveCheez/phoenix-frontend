@@ -32,9 +32,9 @@ const {
 const toast = useToast();
 const recoveryFeedback = ref("");
 const config = useRuntimeConfig();
-const checkoutEnabled = computed(() =>
-  config.public.checkoutEnabled === true ||
-  String(config.public.checkoutEnabled).toLowerCase() === "true",
+const orderSubmissionEnabled = computed(() =>
+  config.public.orderSubmissionEnabled === true ||
+  String(config.public.orderSubmissionEnabled).toLowerCase() === "true",
 );
 
 onMounted(async () => {
@@ -346,12 +346,12 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
             <span>{{ cartTotalLabel }}</span>
           </div>
           <NuxtLink
-            v-if="checkoutEnabled"
+            v-if="orderSubmissionEnabled"
             to="/checkout"
             class="mt-6 block rounded-lg bg-blue-600 py-3 text-center font-semibold text-white transition hover:bg-blue-700"
-            :class="{ 'pointer-events-none opacity-50': isCartMutating }"
+            :class="{ 'pointer-events-none opacity-50': isCartMutating || access !== 'ready' }"
           >
-            Proceed to Checkout
+            Continue to order details
           </NuxtLink>
           <NuxtLink
             v-else
@@ -360,7 +360,7 @@ const cartTotalLabel = computed(() => moneyLabel(cartTotal.value));
           >
             Contact us to order
           </NuxtLink>
-          <p v-if="!checkoutEnabled" class="mt-3 text-sm text-gray-600">
+          <p v-if="!orderSubmissionEnabled" class="mt-3 text-sm text-gray-600">
             Online payment is temporarily unavailable.
           </p>
         </div>

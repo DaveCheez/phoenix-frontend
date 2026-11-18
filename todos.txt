@@ -1,7 +1,7 @@
 # Phoenix Vanz project tracker
 
-Last reviewed: 16 October 2026
-Previous review recorded in this file: 9 October 2026
+Last reviewed: 18 November 2026
+Previous review recorded in this file: 16 October 2026
 
 This file is the project status source. The owner reports that the current
 release is deployed and the requested live basket check worked. That is
@@ -198,7 +198,22 @@ No Stripe in these steps.
    checkpoint. Not deployed. Checkout stays disabled.
 
 2. PV-ORDER-2 — customer details and confirmation UI.
-   `/checkout` and `/order-confirmation` stay stubs until this step.
+   Manually accepted in development on 18 November 2026. Production
+   verification is still pending. Not deployed.
+   Checkout shows the saved basket and collects customer and vehicle details.
+   Submit creates one unpaid order. Confirmation reads that order back with
+   GET. `NUXT_PUBLIC_ORDER_SUBMISSION_ENABLED` stays false until that
+   production check. `NUXT_PUBLIC_CHECKOUT_ENABLED` stays false. Email
+   delivery and Stripe stay separate: no email, booking, customer account,
+   or balance-payment page in this step.
+   Local check on 16 November 2026: `npm run build` completed on Nuxt 4.4.8,
+   and `npm run test:cart-access` passed 74 tests. A real browser journey
+   against local Django selected Enhanced and None on `unpaid-order-demo`,
+   set quantity 2, and submitted. The confirmation showed full total 250.00,
+   deposit required 83.33, balance after the deposit 166.67, and payment
+   unpaid. Refresh repeated the GET. A separate client without the guest
+   cookie received 401. The basket was not cleared. Dev remains on
+   `http://localhost:3000`.
 
 3. PV-DEPOSIT — one-third deposit, then the balance on completion.
    After PV-ORDER. Still unmet. Do not enable `NUXT_PUBLIC_CHECKOUT_ENABLED`

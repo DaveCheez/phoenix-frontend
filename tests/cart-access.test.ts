@@ -497,7 +497,12 @@ test("option arrays and configured totals are preserved without browser prices",
   if (allowed.ok) assert.deepEqual(allowed.body.options, [8, 9]);
   const published = publicCart(cartBody);
   assert.equal(published?.total, "40.00");
+  assert.equal(published?.cart_review_token, undefined);
   assert.equal((published?.items as Array<Record<string, unknown>>)[0].line_total, "40.00");
+  const reviewToken = "cd".repeat(32);
+  const withToken = publicCart({ ...cartBody, cart_review_token: reviewToken });
+  assert.equal(withToken?.cart_review_token, reviewToken);
+  assert.equal(publicCart({ ...cartBody, cart_review_token: "NOT-A-REVIEW-TOKEN" }), null);
   const oldBackend = validateIssuance({ success: true, cart_id: "uuid-only", cart: cartBody });
   assert.equal(oldBackend.ok, false);
 });

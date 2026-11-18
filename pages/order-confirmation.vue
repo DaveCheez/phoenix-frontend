@@ -1,36 +1,145 @@
-<script setup>
-const route = useRoute();
-const reference = computed(() => String(route.query.reference || ""));
-</script>
-
 <template>
-  <div class="mx-auto max-w-xl p-6 pt-28 text-center">
-    <template v-if="reference">
-      <h1 class="mb-4 text-2xl font-bold">Order received</h1>
-      <p class="mb-4 text-gray-600">
-        Your reference is <strong>{{ reference }}</strong>. Phoenix Vanz will be
-        in touch to confirm fitment, lead time and installation.
-      </p>
-    </template>
+  <div class="mx-auto max-w-3xl px-4 py-8 pt-28">
+    <h1 class="mb-4 text-3xl font-bold">Order confirmation</h1>
 
-    <template v-else>
-      <h1 class="mb-4 text-2xl font-bold">No confirmed online order</h1>
-      <p class="mb-4 text-gray-600">
-        Online checkout is not currently enabled. Please contact Phoenix Vanz
-        and we will confirm the correct product and fitting details.
-      </p>
-      <NuxtLink
-        to="/contact"
-        class="inline-flex rounded bg-gray-900 px-5 py-3 font-semibold text-white"
-      >
+    <p v-if="state === 'loading'" class="text-gray-700" role="status">Loading your order…</p>
+
+    <div v-else-if="state === 'success' && order" class="space-y-6 rounded-lg bg-white p-6 shadow-md">
+      <p class="text-lg">Your order has been received. No payment has been taken.</p>
+      <p>Your order is awaiting a deposit and confirmation of fitting arrangements.</p>
+      <p>Reference: <strong>{{ order.reference }}</strong></p>
+
+      <section>
+        <h2 class="mb-3 text-xl font-semibold">Saved products</h2>
+        <ul class="divide-y">
+          <li v-for="(item, index) in order.items" :key="`${item.product_name}-${index}`" class="py-4">
+            <h3 class="font-semibold">{{ item.product_name }}</h3>
+            <ul v-if="item.options.length" class="mt-2 space-y-1 text-sm text-gray-700">
+              <li v-for="option in item.options" :key="`${option.group_name}-${option.option_name}`">
+                {{ option.group_name }}: {{ option.option_name }}
+                ({{ option.price_adjustment === "0.00" ? "Included" : `+£${option.price_adjustment}` }})
+              </li>
+            </ul>
+            <dl class="mt-3 space-y-1 text-sm">
+              <div class="flex justify-between gap-3">
+                <dt>Quantity</dt>
+                <dd>{{ item.quantity }}</dd>
+              </div>
+              <div class="flex justify-between gap-3">
+                <dt>Configured unit price</dt>
+                <dd>£{{ item.configured_unit_price }}</dd>
+              </div>
+              <div class="flex justify-between gap-3 font-semibold">
+                <dt>Line total</dt>
+                <dd>£{{ item.line_total }}</dd>
+              </div>
+            </dl>
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 class="mb-3 text-xl font-semibold">Customer and vehicle</h2>
+        <dl class="space-y-1 text-sm">
+          <div class="flex justify-between gap-3"><dt>Name</dt><dd>{{ order.customer_name }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Email</dt><dd>{{ order.customer_email }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Phone</dt><dd>{{ order.customer_phone }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Make</dt><dd>{{ order.vehicle_make }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Model</dt><dd>{{ order.vehicle_model }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Year</dt><dd>{{ order.vehicle_year }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Wheelbase</dt><dd>{{ order.vehicle_wheelbase }}</dd></div>
+          <div v-if="order.vehicle_registration" class="flex justify-between gap-3">
+            <dt>Registration</dt><dd>{{ order.vehicle_registration }}</dd>
+          </div>
+          <div v-if="order.customer_notes" class="flex justify-between gap-3">
+            <dt>Notes</dt><dd>{{ order.customer_notes }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section>
+        <h2 class="mb-3 text-xl font-semibold">Payment</h2>
+        <dl class="space-y-1">
+          <div class="flex justify-between gap-3"><dt>Full total</dt><dd>£{{ order.full_total }}</dd></div>
+          <div class="flex justify-between gap-3"><dt>Deposit required</dt><dd>£{{ order.deposit_required }}</dd></div>
+          <div class="flex justify-between gap-3">
+            <dt>Balance after the deposit</dt>
+            <dd>£{{ order.balance_on_completion }}</dd>
+          </div>
+          <div class="flex justify-between gap-3 font-semibold"><dt>Payment</dt><dd>Unpaid</dd></div>
+        </dl>
+        <p class="mt-3 text-sm text-gray-700">
+          The full total is unpaid. The balance after the deposit is not an amount due now.
+        </p>
+      </section>
+    </div>
+
+    <div v-else-if="state === 'unavailable'" class="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950">
+      <h2 class="text-lg font-semibold">This order is not available</h2>
+      <p class="mt-2">{{ message }}</p>
+      <NuxtLink to="/contact" class="mt-4 inline-flex rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-black">
         Contact Phoenix Vanz
       </NuxtLink>
-    </template>
+    </div>
 
-    <div class="mt-6">
-      <NuxtLink to="/" class="text-blue-700 hover:underline">
-        Return to home
-      </NuxtLink>
+    <div v-else class="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950">
+      <h2 class="text-lg font-semibold">The order could not be confirmed</h2>
+      <p class="mt-2">{{ message }}</p>
+      <button
+        type="button"
+        class="mt-4 rounded bg-gray-900 px-4 py-2 font-semibold text-white hover:bg-black"
+        @click="load"
+      >
+        Try again
+      </button>
     </div>
   </div>
 </template>
+
+<script setup>
+import { computed, onMounted, ref, watch } from "vue";
+import { readOrderConfirmation } from "~/utils/orderClient";
+
+useHead({
+  title: "Order confirmation | Phoenix Vanz",
+  meta: [
+    {
+      name: "description",
+      content: "View an unpaid Phoenix Vanz order confirmation. No payment is taken on this page.",
+    },
+  ],
+});
+
+const route = useRoute();
+const reference = computed(() => String(route.query.reference || ""));
+const state = ref("loading");
+const message = ref("");
+const order = ref(null);
+
+async function nuxtFetch(path, options = {}) {
+  const response = await $fetch.raw(path, options);
+  return { status: response.status, _data: response._data };
+}
+
+async function load() {
+  order.value = null;
+  if (!reference.value) {
+    state.value = "unavailable";
+    message.value = "This order is not available.";
+    return;
+  }
+  state.value = "loading";
+  message.value = "";
+  const result = await readOrderConfirmation(nuxtFetch, reference.value);
+  if (result.outcome === "success") {
+    order.value = result.order;
+    state.value = "success";
+    return;
+  }
+  message.value = result.message;
+  state.value = result.outcome === "unavailable" ? "unavailable" : "service";
+}
+
+onMounted(load);
+watch(reference, load);
+</script>

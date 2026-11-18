@@ -11,6 +11,7 @@ import {
   CART_CACHE_CONTROL,
   applyCartCachePolicy,
   isCartCachePath,
+  isOrderCachePath,
   mergeVaryCookie,
   withCartCacheHeaders,
 } from "../server/utils/cartCachePolicy.ts";
@@ -83,6 +84,12 @@ test("h3 response: an existing Vary token survives the cart policy", async () =>
     const other = await fetch(`http://127.0.0.1:${address.port}/api/cartoon`);
     assert.equal(other.headers.get("cache-control"), null);
     assert.equal(other.headers.get("vary"), "Accept-Encoding");
+    const order = await fetch(`http://127.0.0.1:${address.port}/api/orders/PV-TEST`);
+    assert.equal(order.headers.get("cache-control"), CART_CACHE_CONTROL);
+    assert.equal(order.headers.get("pragma"), "no-cache");
+    assert.match(order.headers.get("vary") || "", /Cookie/);
+    assert.equal(isOrderCachePath("/api/orders"), true);
+    assert.equal(isOrderCachePath("/api/orders-archive"), false);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

@@ -22,6 +22,8 @@ const config: CartConfig = {
   trustedIngress: "",
 };
 
+const REVIEW = "ab".repeat(32);
+
 const customer = {
   customer_name: "Alex Farmer",
   customer_email: "alex@example.com",
@@ -30,6 +32,7 @@ const customer = {
   vehicle_model: "T6.1",
   vehicle_year: 2021,
   vehicle_wheelbase: "LWB",
+  cart_review_token: REVIEW,
 };
 
 test("order bodies cannot carry prices", () => {
@@ -85,6 +88,24 @@ test("creating and reading an order use the guest credential, not a browser pric
   assert.equal(calls[0].bearer, GUEST);
   assert.equal(calls[0].idempotencyKey, "order-key-1");
   assert.equal((calls[0].body as Record<string, unknown>).full_total, undefined);
+  assert.equal((calls[0].body as Record<string, unknown>).cart_review_token, REVIEW);
+
+  const missingToken = { ...customer };
+  delete (missingToken as { cart_review_token?: string }).cart_review_token;
+  const rejected = await call(handleCreateOrder, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: `phoenix_guest_dev=${GUEST}`,
+      "x-phoenix-csrf": csrf,
+      "idempotency-key": "order-key-2",
+    },
+    body: missingToken,
+    django,
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(rejected.json.code, "CART_REVIEW_REQUIRED");
+  assert.equal(calls.length, 1);
 
   const confirmation = await call(
     (event, routeConfig, upstream) => handleOrderConfirmation(event, routeConfig, upstream, "PV-TEST"),
